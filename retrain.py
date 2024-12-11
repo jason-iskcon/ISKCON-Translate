@@ -1,4 +1,4 @@
-## LOAD THE 'NEW' LANGUAGE TRANSLATION DATA.
+h## LOAD THE 'NEW' LANGUAGE TRANSLATION DATA.
 
 import pandas as pd
 
@@ -11,11 +11,10 @@ new_data = new_data.drop(columns=['metadata'], errors='ignore')
 
 # Columns to lists conversion
 english_sentences = new_data['english'].tolist()
-spanish_sentences = new_data['spanish'].tolist()
+spanish_sentences = new_data['french'].tolist()
 
 # Need to be in string format
 spanish_sentences = [str(sentence) for sentence in spanish_sentences]
-
 
 ## LOAD THE MODEL AND TOKENIZER FOR TRAINING/RETRAINING.
 
@@ -24,7 +23,6 @@ import torch
 pretrained_model_path = "      link to folder 'currentModel'    "
 model = AutoModelForSeq2SeqLM.from_pretrained(pretrained_model_path)
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_path)
-
 
 ## PROCESS THE TRAINING DATA.
 
@@ -52,7 +50,6 @@ class TranslationDataset(torch.utils.data.Dataset):
 # Prepare the dataset for retraining
 new_dataset = TranslationDataset(inputs, labels)
 
-
 ## SET THE TRAINING CONDITION.
 
 from transformers import Trainer, TrainingArguments
@@ -78,7 +75,6 @@ class SaveTokenizerCallback(TrainerCallback):
         if os.path.exists(checkpoint_dir):
             tokenizer.save_pretrained(checkpoint_dir)
 
-
 # Custom dataset class
 class TranslationDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, labels):
@@ -102,7 +98,6 @@ trainer = Trainer(
     train_dataset=dataset,
     callbacks=[SaveTokenizerCallback()]  # Add the custom callback here
 )
-
 
 ## TRAIN!
 trainer.train()
