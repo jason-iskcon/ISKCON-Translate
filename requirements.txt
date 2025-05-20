@@ -1,0 +1,10 @@
+numpy>=1.21.0
+torch>=2.0.0
+transformers>=4.30.0
+opencv-python>=4.5.0
+yt-dlp>=2023.12.30
+pyyaml>=6.0.0
+pyaudio>=0.2.13
+moviepy>=1.0.3
+sounddevice>=0.4.5
+soundfile>=0.10.0
