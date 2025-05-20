@@ -10,31 +10,23 @@ logger = logging.getLogger(__name__)
 
 class TranscriptionEngine:
     def __init__(self, config=None):
-        """Minimalist transcription engine - just returns hardcoded captions for MVP."""
-        # Fixed sampling rate
+        """Transcription engine using Whisper small model."""
+        import os
         self.sampling_rate = 16000
-        
-        # Audio queue for processing
         self.audio_queue = Queue(maxsize=20)
         self.result_queue = Queue(maxsize=20)
         self.is_running = False
-        
-        # Pre-made captions for demo (with timestamps)
-        self.demo_captions = [
-            ("Welcome to the video.", 1.0), 
-            ("This is a synchronized captioning system.", 5.0),
-            ("Notice how captions appear at the right time.", 10.0),
-            ("Synchronization is working correctly.", 15.0),
-            ("Audio and video are properly aligned.", 20.0),
-            ("This demonstrates timestamp-based synchronization.", 25.0),
-            ("The system uses presentation timestamps for all components.", 30.0),
-            ("Caption overlay is synchronized with video frames.", 35.0),
-            ("This simple system ensures proper audio-video sync.", 40.0),
-            ("Thank you for watching this demo.", 45.0)
-        ]
-        self.caption_index = 0
         self.latest_timestamp = 0.0
         self.last_emitted_caption_time = 0.0
+        self.transcription_thread = None
+        # Load Whisper small model from cache (do not download)
+        import whisper
+        model_dir = os.path.expanduser(r"C:/Users/Jason/.cache/whisper")
+        self.model = whisper.load_model("small", download_root=model_dir)
+        self.model_dir = model_dir
+        import numpy as np
+        self.np = np
+
         
     # No model initialization needed for MVP
             
@@ -72,7 +64,6 @@ class TranscriptionEngine:
                 
                 # Update the latest timestamp directly
                 self.latest_timestamp = max(self.latest_timestamp, timestamp)
-                logger.debug(f"Updated timestamp: {self.latest_timestamp:.2f}s")
             else:
                 logger.warning("Received malformed audio data")
         except Exception as e:
@@ -90,44 +81,50 @@ class TranscriptionEngine:
             return None
             
     def _transcription_worker(self):
-        """Process audio segments and generate demo captions with timestamps."""
-        logger.info("Transcription worker started")
+        """Process audio segments and generate Whisper transcriptions with timestamps."""
+        logger.info("Transcription worker started (Whisper model)")
         
         try:
             while self.is_running:
-                # Process any audio data in queue
                 if not self.audio_queue.empty():
                     try:
+                        # Get audio data from queue
                         audio_data, timestamp = self.audio_queue.get()
-                        # We've already updated the timestamp in add_audio_segment
-                        # but we could do additional processing here if needed
+                        
+                        # Prepare audio for Whisper (must be float32, mono, 16kHz)
+                        if not isinstance(audio_data, self.np.ndarray):
+                            audio_data = self.np.array(audio_data, dtype=self.np.float32)
+                        if audio_data.dtype != self.np.float32:
+                            audio_data = audio_data.astype(self.np.float32)
+                        
+                        # Convert to mono if needed
+                        if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
+                            audio_data = audio_data.mean(axis=1)
+                        
+                        # Ensure we have enough audio for Whisper (at least 1 second)
+                        if len(audio_data) < self.sampling_rate:
+                            audio_data = self.np.pad(audio_data, (0, self.sampling_rate - len(audio_data)))
+                        else:
+                            audio_data = audio_data[:self.sampling_rate]  # Limit to 1 second
+                        
+                        # Transcribe with Whisper
+                        result = self.model.transcribe(audio_data, language='en', fp16=False, verbose=False)
+                        text = result.get('text', '').strip()
+                        
+                        # If we got text, add it to the result queue
+                        if text:
+                            transcription = {
+                                "text": text,
+                                "timestamp": timestamp,
+                                "language": result.get('language', 'english')
+                            }
+                            self.result_queue.put(transcription)
+                            logger.info(f"Transcribed at {timestamp:.2f}s: '{text}'")
+                            self.last_emitted_caption_time = timestamp
                     except Exception as e:
-                        logger.error(f"Error processing audio data: {e}")
-                
-                # Check if we should emit the next caption based on timestamp
-                if self.caption_index < len(self.demo_captions):
-                    caption_text, caption_time = self.demo_captions[self.caption_index]
-                    
-                    # Emit caption when we reach its timestamp
-                    if self.latest_timestamp >= caption_time and caption_time > self.last_emitted_caption_time:
-                        # Create result with timestamp for synchronization
-                        result = {
-                            "text": caption_text,
-                            "timestamp": caption_time,
-                            "language": "english"
-                        }
-                        
-                        # Add to result queue
-                        self.result_queue.put(result)
-                        logger.info(f"Caption generated: '{result['text']}' at time {caption_time:.2f}s")
-                        
-                        # Update tracking variables
-                        self.last_emitted_caption_time = caption_time
-                        self.caption_index += 1
-                
-                # Don't burn CPU
-                time.sleep(0.1)
-                    
+                        logger.error(f"Error in transcription: {e}")
+                # Small sleep to prevent 100% CPU usage
+                time.sleep(0.05)
         except Exception as e:
             logger.error(f"Error in transcription worker: {e}")
             

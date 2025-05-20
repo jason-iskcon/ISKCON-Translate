@@ -19,16 +19,21 @@ logger = logging.getLogger(__name__)
 def process_audio(video_source, transcriber):
     """Process audio from video source and send to transcriber."""
     logger.info("Starting audio processing thread")
+    last_time = 0
     
     try:
         while video_source.is_running:
-            # Get audio data with timestamp
-            audio_data = video_source.get_audio_chunk()
-            if audio_data is not None:
-                # Send to transcriber - already includes timestamp for sync
-                transcriber.add_audio_segment(audio_data)
-            else:
-                time.sleep(0.01)
+            # Check current audio position
+            with video_source.audio_position_lock:
+                current = video_source.audio_position
+            # Process only if we've advanced by 2+ seconds
+            if current >= last_time + 2.0:
+                audio_data = video_source.get_audio_chunk()
+                if audio_data is not None:
+                    transcriber.add_audio_segment(audio_data)
+                    last_time = current
+            # Small delay
+            time.sleep(0.1)
     except Exception as e:
         logger.error(f"Error in audio processing: {e}")
         

@@ -40,6 +40,7 @@ class VideoSource:
         # Audio playback
         self.audio_playing = False
         self.audio_thread = None
+        self._cached_audio_file = None  # Cache the audio file path
         
         # Synchronization objects
         self.audio_position = 0.0  # Current audio position in seconds
@@ -119,12 +120,17 @@ class VideoSource:
                 
     def _get_audio_file_path(self):
         """Get path to audio file that corresponds to the video file."""
+        # Return cached path if available
+        if self._cached_audio_file is not None:
+            return self._cached_audio_file
+            
         # First, check if there's a matching WAV file in the same folder
         video_basename = os.path.splitext(self.source)[0]
         audio_file = f"{video_basename}.wav"
         
         if os.path.exists(audio_file):
             logger.info(f"Found existing audio file: {audio_file}")
+            self._cached_audio_file = audio_file  # Cache the result
             return audio_file
             
         # If no WAV file exists, extract it from the video using FFmpeg
@@ -162,6 +168,7 @@ class VideoSource:
                 
         if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
             logger.info(f"Audio file ready: {audio_file}")
+            self._cached_audio_file = audio_file  # Cache the result
             return audio_file
         else:
             logger.warning("Audio file extraction failed or file is empty")
@@ -333,21 +340,41 @@ class VideoSource:
             
     def get_audio_chunk(self):
         """Get the next audio chunk with its timestamp.
-        For transcription purposes, we use the audio position which is our master clock.
+        For transcription purposes, we extract actual audio from the current playback position.
         """
         if not self.is_running:
             return None
             
         try:
-            # Use the current audio position for precise timing
+            # Get current audio position
             with self.audio_position_lock:
                 current_time = self.audio_position
-                
-            # Return dummy audio data with accurate current timestamp
+            
+            # Extract actual audio data instead of using dummy data
+            audio_file = self._get_audio_file_path()
+            if audio_file and os.path.exists(audio_file):
+                try:
+                    # Load a small segment of audio at current position
+                    with sf.SoundFile(audio_file) as f:
+                        sample_rate = f.samplerate
+                        start_sample = int(current_time * sample_rate)
+                        # Don't try to read past the end of the file
+                        if start_sample < len(f):
+                            # Seek to position and read 1 second of audio
+                            f.seek(start_sample)
+                            audio_chunk = f.read(min(sample_rate, len(f) - start_sample), dtype='float32')
+                            # If stereo, convert to mono
+                            if len(audio_chunk.shape) > 1 and audio_chunk.shape[1] > 1:
+                                audio_chunk = audio_chunk.mean(axis=1)
+                            return (audio_chunk, current_time)
+                except Exception as e:
+                    logger.error(f"Error extracting audio: {e}")
+            
+            # Fallback to dummy audio if extraction fails
             audio_data = np.zeros(1600, dtype=np.float32)
             return (audio_data, current_time)
         except Exception as e:
-            logger.error(f"Error getting audio chunk: {e}")
+            logger.error(f"Error in get_audio_chunk: {e}")
             return None
             
     def get_video_info(self):
