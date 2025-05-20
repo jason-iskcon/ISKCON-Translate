@@ -51,7 +51,8 @@ def main(video_file=None):
         logger.info(f"Starting synchronized video captioning with {video_file}")
         
         # Initialize components with minimal configuration
-        with VideoSource(video_file) as video_source, \
+        # Start at 5:25 (325 seconds) where English translation begins
+        with VideoSource(video_file, start_time=325.0) as video_source, \
              TranscriptionEngine() as transcriber, \
              CaptionOverlay() as caption_overlay:
             

@@ -14,11 +14,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 class VideoSource:
-    def __init__(self, source):
+    def __init__(self, source, start_time=0.0):
         """Initialize video source with audio handling capabilities.
         
         Args:
             source: Path to video file (should be in ~/.video_cache)
+            start_time: Time position (in seconds) to start playback from
         """
         # Use source directly if it's an absolute path, otherwise assume it's in cache
         self.source = source
@@ -42,6 +43,9 @@ class VideoSource:
         self.audio_thread = None
         self._cached_audio_file = None  # Cache the audio file path
         
+        # Starting position (in seconds)
+        self.start_time = start_time
+        
         # Synchronization objects
         self.audio_position = 0.0  # Current audio position in seconds
         self.audio_position_lock = threading.RLock()
@@ -64,7 +68,15 @@ class VideoSource:
                     
                 # Get video info
                 self._video_fps = self._cap.get(cv2.CAP_PROP_FPS)
-                self._frame_count = 0
+                
+                # Set initial frame count based on start_time if specified
+                if self.start_time > 0:
+                    self._frame_count = int(self.start_time * self._video_fps)
+                    # Seek to the specified start position
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, self._frame_count)
+                    logger.info(f"Seeking video to {self.start_time:.2f}s (frame {self._frame_count})")
+                else:
+                    self._frame_count = 0
                 
                 # Check for existing audio file in cache
                 audio_file = self._get_audio_file_path()
@@ -265,10 +277,10 @@ class VideoSource:
             if sleep_time > 0:
                 time.sleep(sleep_time)
                 
-            logger.info("Starting audio playback")
+            logger.info(f"Starting audio playback at {self.start_time:.2f}s")
             
-            # Tracking variables
-            frames_played = 0
+            # Tracking variables - initialize to start position
+            frames_played = int(self.start_time * sample_rate)
             
             # Create a callback that plays audio sequentially without repositioning
             def audio_callback(outdata, frames, time_info, status):
@@ -360,9 +372,10 @@ class VideoSource:
                         start_sample = int(current_time * sample_rate)
                         # Don't try to read past the end of the file
                         if start_sample < len(f):
-                            # Seek to position and read 1 second of audio
+                            # Seek to position and read 3 seconds of audio for better sentence recognition
+                            # (5 seconds was causing issues with the model)
                             f.seek(start_sample)
-                            audio_chunk = f.read(min(sample_rate, len(f) - start_sample), dtype='float32')
+                            audio_chunk = f.read(min(3 * sample_rate, len(f) - start_sample), dtype='float32')
                             # If stereo, convert to mono
                             if len(audio_chunk.shape) > 1 and audio_chunk.shape[1] > 1:
                                 audio_chunk = audio_chunk.mean(axis=1)

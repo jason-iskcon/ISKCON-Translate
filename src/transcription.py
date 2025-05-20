@@ -1,8 +1,11 @@
 import numpy as np
+import numpy as np
 import threading
 from queue import Queue
 import time
 import logging
+import os
+import whisper
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -104,15 +107,24 @@ class TranscriptionEngine:
                         # Ensure we have enough audio for Whisper (at least 1 second)
                         if len(audio_data) < self.sampling_rate:
                             audio_data = self.np.pad(audio_data, (0, self.sampling_rate - len(audio_data)))
-                        else:
-                            audio_data = audio_data[:self.sampling_rate]  # Limit to 1 second
                         
-                        # Transcribe with Whisper
-                        result = self.model.transcribe(audio_data, language='en', fp16=False, verbose=False)
+                        # Transcribe with Whisper using simpler but effective options
+                        result = self.model.transcribe(
+                            audio_data,
+                            language='en',       # Force English language
+                            fp16=False,         # Better accuracy with FP32
+                            temperature=0.0      # Use greedy decoding for more reliable results
+                        )
+                        
                         text = result.get('text', '').strip()
                         
                         # If we got text, add it to the result queue
                         if text:
+                            # Clean up text for better readability
+                            text = text.strip()
+                            if text and text[0].islower():
+                                text = text[0].upper() + text[1:]
+                            
                             transcription = {
                                 "text": text,
                                 "timestamp": timestamp,
