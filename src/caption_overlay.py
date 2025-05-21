@@ -13,11 +13,12 @@ class CaptionOverlay:
         self.caption_timestamp = 0
         self.caption_duration = 5.0  # Show each caption for 5 seconds
         
-    def start(self):
-        pass
+    # Context manager methods for resource management
+    def __enter__(self):
+        return self
         
-    def stop(self):
-        pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass  # No resources to clean up
             
     def add_caption(self, text, timestamp=0.0, language="english"):
         """Add a new caption with timestamp."""

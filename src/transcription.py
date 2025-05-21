@@ -17,10 +17,14 @@ logging.getLogger('faster_whisper').setLevel(logging.WARNING)
 
 class TranscriptionEngine:
     def __init__(self, config=None):
-        """Transcription engine using faster-whisper with medium model."""
+        """Initialize the transcription engine.
+        
+        Args:
+            config: Optional configuration dictionary (not currently used)
+        """
         self.sampling_rate = 16000
-        self.chunk_size = 30.0  # Process 30-second chunks for better context
-        self.audio_queue = Queue(maxsize=5)  # Reduced queue size for larger chunks
+        self.chunk_size = 10.0  # Process 10-second chunks for better context
+        self.audio_queue = Queue(maxsize=5)
         self.result_queue = Queue(maxsize=20)
         self.is_running = False
         self.latest_timestamp = 0.0
@@ -238,6 +242,48 @@ class TranscriptionEngine:
         finally:
             logger.info("Transcription worker stopped")
 
+    def process_audio(self, video_source):
+        """Process audio from video source and send to transcriber.
+        
+        This method uses a sliding window approach to process audio in overlapping chunks
+        for better transcription quality and continuity.
+        
+        Args:
+            video_source: The video source to get audio chunks from
+        """
+        logger.info("Starting audio processing thread")
+        overlap = 2.0  # 2-second overlap between chunks for smooth transitions
+        last_process_time = -self.chunk_size  # Ensure we process immediately
+        
+        try:
+            while video_source.is_running and not video_source._shutdown_event.is_set():
+                try:
+                    # Get current audio position
+                    with video_source.audio_position_lock:
+                        current_time = video_source.audio_position
+                    
+                    # Process audio in chunks with overlap
+                    if current_time >= last_process_time + (self.chunk_size - overlap):
+                        # Get audio chunk from current position with specified size
+                        audio_data = video_source.get_audio_chunk(chunk_size=self.chunk_size)
+                        if audio_data is not None:
+                            # Add to transcription engine
+                            self.add_audio_segment(audio_data)
+                            last_process_time = current_time
+                            logger.debug(f"Processed audio chunk at {current_time:.2f}s")
+                    
+                    # Small delay to prevent busy waiting
+                    time.sleep(0.05)
+                    
+                except Exception as e:
+                    logger.error(f"Error in audio processing loop: {e}")
+                    time.sleep(0.1)  # Prevent tight loop on errors
+                    
+        except Exception as e:
+            logger.error(f"Fatal error in audio processing: {e}", exc_info=True)
+        finally:
+            logger.info("Audio processing stopped")
+    
     def __enter__(self):
         self.start_transcription()
         return self
