@@ -17,27 +17,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def process_audio(video_source, transcriber):
-    """Process audio from video source and send to transcriber."""
+    """Process audio from video source and send to transcriber.
+    
+    This function uses a sliding window approach to process audio in overlapping chunks
+    for better transcription quality and continuity.
+    """
     logger.info("Starting audio processing thread")
-    last_time = 0
+    chunk_size = 3.0  # Process 3-second chunks
+    overlap = 1.0      # 1-second overlap between chunks
+    last_process_time = -chunk_size  # Ensure we process immediately
     
     try:
-        while video_source.is_running:
-            # Check current audio position
-            with video_source.audio_position_lock:
-                current = video_source.audio_position
-            # Process only if we've advanced by 2+ seconds
-            if current >= last_time + 2.0:
-                audio_data = video_source.get_audio_chunk()
-                if audio_data is not None:
-                    transcriber.add_audio_segment(audio_data)
-                    last_time = current
-            # Small delay
-            time.sleep(0.1)
+        while video_source.is_running and not video_source._shutdown_event.is_set():
+            try:
+                # Get current audio position
+                with video_source.audio_position_lock:
+                    current_time = video_source.audio_position
+                
+                # Process audio in chunks with overlap
+                if current_time >= last_process_time + (chunk_size - overlap):
+                    # Get audio chunk from current position with specified size
+                    audio_data = video_source.get_audio_chunk(chunk_size=chunk_size)
+                    if audio_data is not None:
+                        # Add to transcription engine
+                        transcriber.add_audio_segment(audio_data)
+                        last_process_time = current_time
+                        logger.debug(f"Processed audio chunk at {current_time:.2f}s")
+                
+                # Small delay to prevent busy waiting
+                time.sleep(0.05)
+                
+            except Exception as e:
+                logger.error(f"Error in audio processing loop: {e}")
+                time.sleep(0.1)  # Prevent tight loop on errors
+                
     except Exception as e:
-        logger.error(f"Error in audio processing: {e}")
-        
-    logger.info("Audio processing stopped")
+        logger.error(f"Fatal error in audio processing: {e}", exc_info=True)
+    finally:
+        logger.info("Audio processing stopped")
 
 def main(video_file=None):
     """Minimal main function with hardcoded values."""

@@ -350,9 +350,15 @@ class VideoSource:
         except:
             return None
             
-    def get_audio_chunk(self):
+    def get_audio_chunk(self, chunk_size=3.0):
         """Get the next audio chunk with its timestamp.
-        For transcription purposes, we extract actual audio from the current playback position.
+        
+        Args:
+            chunk_size: Length of audio chunk in seconds (default: 3.0)
+            
+        Returns:
+            tuple: (audio_data, start_time) where audio_data is a numpy array of samples
+                   and start_time is the timestamp in seconds where the chunk begins.
         """
         if not self.is_running:
             return None
@@ -362,32 +368,60 @@ class VideoSource:
             with self.audio_position_lock:
                 current_time = self.audio_position
             
-            # Extract actual audio data instead of using dummy data
+            # Extract actual audio data
             audio_file = self._get_audio_file_path()
             if audio_file and os.path.exists(audio_file):
                 try:
-                    # Load a small segment of audio at current position
                     with sf.SoundFile(audio_file) as f:
                         sample_rate = f.samplerate
                         start_sample = int(current_time * sample_rate)
+                        chunk_samples = int(chunk_size * sample_rate)
+                        
                         # Don't try to read past the end of the file
                         if start_sample < len(f):
-                            # Seek to position and read 3 seconds of audio for better sentence recognition
-                            # (5 seconds was causing issues with the model)
                             f.seek(start_sample)
-                            audio_chunk = f.read(min(3 * sample_rate, len(f) - start_sample), dtype='float32')
-                            # If stereo, convert to mono
+                            # Read chunk_size seconds of audio or remaining audio
+                            audio_chunk = f.read(
+                                min(chunk_samples, len(f) - start_sample), 
+                                dtype='float32'
+                            )
+                            
+                            # If we got less than chunk_size seconds, pad with zeros
+                            if len(audio_chunk) < chunk_samples:
+                                padding = np.zeros(
+                                    (chunk_samples - len(audio_chunk),) + audio_chunk.shape[1:], 
+                                    dtype=audio_chunk.dtype
+                                )
+                                audio_chunk = np.concatenate([audio_chunk, padding])
+                            
+                            # Convert to mono if stereo
                             if len(audio_chunk.shape) > 1 and audio_chunk.shape[1] > 1:
                                 audio_chunk = audio_chunk.mean(axis=1)
+                            
+                            # Resample to 16kHz if needed (Whisper's expected sample rate)
+                            if sample_rate != 16000:
+                                import librosa
+                                audio_chunk = librosa.resample(
+                                    audio_chunk, 
+                                    orig_sr=sample_rate, 
+                                    target_sr=16000
+                                )
+                            
+                            logger.debug(
+                                f"Extracted {len(audio_chunk)/16000:.2f}s audio chunk "
+                                f"at {current_time:.2f}s (resampled to 16kHz)"
+                            )
                             return (audio_chunk, current_time)
+                            
                 except Exception as e:
-                    logger.error(f"Error extracting audio: {e}")
+                    logger.error(f"Error extracting audio: {e}", exc_info=True)
             
-            # Fallback to dummy audio if extraction fails
-            audio_data = np.zeros(1600, dtype=np.float32)
+            # Fallback to silent audio at 16kHz if extraction fails
+            audio_data = np.zeros(int(chunk_size * 16000), dtype=np.float32)
             return (audio_data, current_time)
+            
         except Exception as e:
-            logger.error(f"Error in get_audio_chunk: {e}")
+            logger.error(f"Error in get_audio_chunk: {e}", exc_info=True)
             return None
             
     def get_video_info(self):
