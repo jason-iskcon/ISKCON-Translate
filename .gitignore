@@ -9,6 +9,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 scripts/
+tests/test_data/
 share/
 build/
 develop-eggs/

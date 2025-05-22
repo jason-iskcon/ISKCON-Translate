@@ -37,8 +37,11 @@ class VideoSource:
             self.logger.debug(f"Using cached video path: {self.source}")
             
         # Initialize queue for synchronized playback with larger buffer
-        self.frames_queue = Queue(maxsize=120)  # Increased from 30 to 120 frames (about 4 seconds at 30fps)
+        self.frames_queue = Queue(maxsize=120)  # 120 frames (4 seconds at 30fps)
         self.last_queue_warning = 0
+        self._last_queue_warning = 0
+        self._consecutive_drops = 0
+        self._last_queue_size = 0
         
         # Thread management
         self.is_running = False
@@ -66,12 +69,27 @@ class VideoSource:
         self.start_sync_event = threading.Event()  # For exact start synchronization
         self.playback_start_time = 0.0  # Common reference point for sync
         
+        # Thread control
+        self._stop_event = threading.Event()
+        self._frame_available_cv = threading.Condition()
+        self._started = False
+        self._error_occurred = False
+        self._error = None
+        self._capture_thread = None
+        self._start_cv = threading.Condition()
+        
     def start(self):
         """Start video capture and processing."""
         with self._lock:
             if self.is_running:
                 self.logger.warning("Video source is already running")
                 return
+                
+            # Reset state
+            self._stop_event.clear()
+            self._error_occurred = False
+            self._error = None
+            self._started = False
             self.logger.info("Starting video source")
             
             try:
@@ -128,11 +146,22 @@ class VideoSource:
                 self.start_sync_event.clear()
                 self.warm_up_complete.clear()
                 
-                # Start video thread (will wait for warm-up)
-                logger.info("Starting video thread (waiting for warm-up to complete)")
-                self.video_thread = threading.Thread(target=self._capture_frames)
-                self.video_thread.daemon = True
-                self.video_thread.start()
+                # Start video thread
+                logger.info("Starting video capture thread")
+                self._capture_thread = threading.Thread(
+                    target=self._capture_frames,
+                    name="VideoCaptureThread"
+                )
+                self._capture_thread.daemon = True
+                self._capture_thread.start()
+                
+                # Wait for thread to initialize
+                with self._start_cv:
+                    if not self._started:
+                        self._start_cv.wait(5.0)  # 5 second timeout
+                
+                if not self._started:
+                    raise RuntimeError("Failed to start video capture thread")
                 
                 # Don't start audio thread yet - it will be started after warm-up
                 has_audio = bool(self.audio_file)
@@ -617,6 +646,115 @@ class VideoSource:
                 self.logger.error(f"Error during video source shutdown: {e}", exc_info=True)
                 raise
             
+    def _capture_frames(self):
+        """Thread function to capture frames from the video source."""
+        try:
+            self.logger.info("Frame capture thread started")
+            
+            # Signal that we've started
+            with self._start_cv:
+                self._started = True
+                self._start_cv.notify_all()
+                
+            self.logger.info("Frame capture thread initialized and ready")
+            
+            # Initialize frame counter and timing
+            frames_processed = 0
+            last_log_time = time.time()
+            
+            # Main capture loop
+            self.logger.info("Starting main capture loop")
+            while not self._stop_event.is_set():
+                if not hasattr(self, '_cap') or not self._cap.isOpened():
+                    self.logger.error("Video capture is not open")
+                    time.sleep(0.1)
+                    continue
+                try:
+                    # Read frame from video capture
+                    ret, frame = self._cap.read()
+                    
+                    # Log progress periodically
+                    frames_processed += 1
+                    current_time = time.time()
+                    if current_time - last_log_time >= 1.0:  # Log every second
+                        fps = frames_processed / (current_time - last_log_time)
+                        self.logger.debug(
+                            "Capture FPS: %.1f, Queue size: %d/%d, Frame: %d/%d",
+                            fps, self.frames_queue.qsize(), self.frames_queue.maxsize,
+                            self._cap.get(cv2.CAP_PROP_POS_FRAMES),
+                            self._cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                        )
+                        frames_processed = 0
+                        last_log_time = current_time
+                    
+                    if not ret:
+                        # Check if we've reached the end of the video
+                        current_pos = self._cap.get(cv2.CAP_PROP_POS_FRAMES)
+                        total_frames = self._cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                        if current_pos >= total_frames - 1:
+                            self.logger.info("Reached end of video")
+                            break
+                        else:
+                            self.logger.warning(
+                                "Failed to read frame. Current position: %d/%d",
+                                current_pos, total_frames
+                            )
+                        time.sleep(0.1)
+                        continue
+                    
+                    # Get timestamp for this frame
+                    timestamp = self._cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+                    
+                    # Add frame to queue with minimal blocking
+                    try:
+                        current_qsize = self.frames_queue.qsize()
+                        
+                        # Only log queue size changes of more than 10% or every 5 seconds
+                        current_time = time.time()
+                        if (abs(current_qsize - self._last_queue_size) > self.frames_queue.maxsize * 0.1 or 
+                            current_time - self._last_queue_warning > 5.0):
+                            self.logger.debug(
+                                "Queue status: %d/%d frames (%.1f%%)",
+                                current_qsize,
+                                self.frames_queue.maxsize,
+                                (current_qsize / self.frames_queue.maxsize) * 100
+                            )
+                            self._last_queue_size = current_qsize
+                            self._last_queue_warning = current_time
+                        
+                        # Non-blocking put with short timeout
+                        self.frames_queue.put(
+                            (frame, timestamp),
+                            block=True,
+                            timeout=0.05  # Very short timeout
+                        )
+                        
+                    except queue.Full:
+                        # Silently drop frames if queue is full
+                        # Log only if we've been dropping frames for a while
+                        self._consecutive_drops += 1
+                        if self._consecutive_drops % 30 == 0:  # Log every 30 dropped frames
+                            self.logger.debug(
+                                "Dropping frames (queue full): %d consecutive drops",
+                                self._consecutive_drops
+                            )
+                        continue
+                        
+                except Exception as e:
+                    self.logger.error("Error capturing frame: %s", str(e), exc_info=True)
+                    time.sleep(0.1)  # Prevent tight loop on error
+                    
+        except Exception as e:
+            self.logger.error("Error in capture thread: %s", str(e), exc_info=True)
+            self._error_occurred = True
+            self._error = str(e)
+        finally:
+            # Signal that we're done
+            self._stop_event.set()
+            with self._frame_available_cv:
+                self._frame_available_cv.notify_all()
+            self.logger.info("Frame capture thread exiting")
+
     def __enter__(self):
         self.start()
         return self
