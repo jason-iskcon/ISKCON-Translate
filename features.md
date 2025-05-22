@@ -98,26 +98,39 @@ This document outlines the step-by-step process to implement an enhanced logging
 
 ## Phase 3: Update Transcription Module
 
-- [ ] **3.1 Update transcription.py**
-  - [ ] Import TRACE level from logging_utils
-  - [ ] Categorize transcription logs:
+- [x] **3.1 Update transcription.py**
+  - [x] Import TRACE level from logging_utils
+  - [x] Categorize transcription logs:
     - INFO: Transcription start/end, major chunks
-    - DEBUG: Chunk processing decisions
-    - TRACE: Audio buffer details, timing calculations
+    - [x] DEBUG: Chunk processing decisions
+    - [x] TRACE: Audio buffer details, timing calculations
 
-- [ ] **3.2 Update audio processing logs**
-  - [ ] Move detailed audio chunk analysis to TRACE
-  - [ ] Keep transcription results in INFO
-  - [ ] Move buffer management to DEBUG
-  - [ ] Add audio format and sample rate logging
-  - [ ] Log transcription confidence scores
+- [x] **3.2 Update audio processing logs**
+  - [x] Move detailed audio chunk analysis to TRACE
+  - [x] Keep transcription results in INFO
+  - [x] Move buffer management to DEBUG
+  - [x] Add audio format and sample rate logging
+  - [x] Log transcription confidence scores
 
 - [ ] **3.3 Verification: Audio Processing**
   - [ ] Verify transcription starts/stops correctly
+    - [ ] Check logs for proper initialization messages
+    - [ ] Verify worker thread starts and stops cleanly
+    - [ ] Confirm queues are properly cleared on stop
   - [ ] Check audio format detection
+    - [ ] Verify format is logged correctly for different input types
+    - [ ] Test with various sample rates and bit depths
   - [ ] Validate transcription accuracy logging
+    - [ ] Check confidence scores are logged when available
+    - [ ] Verify timestamps are accurate
   - [ ] Test with different audio qualities
+    - [ ] High quality (16-bit, 44.1kHz)
+    - [ ] Medium quality (16-bit, 22.05kHz)
+    - [ ] Low quality (8-bit, 8kHz)
   - [ ] Measure transcription performance impact
+    - [ ] Log processing time per chunk
+    - [ ] Track memory usage during transcription
+    - [ ] Monitor queue sizes to prevent overflow
 
 ## Phase 4: Update Caption Overlay (Final Phase - Handle with Care)
 
