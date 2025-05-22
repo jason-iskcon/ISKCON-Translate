@@ -131,10 +131,13 @@ This document outlines the step-by-step process to implement an enhanced logging
     - [x] Low quality (8-bit, 8kHz)
     - [x] Verified Whisper handles various audio qualities effectively
     - [x] No significant impact on transcription accuracy observed
-  - [ ] Measure transcription performance impact
-    - [ ] Log processing time per chunk
-    - [ ] Track memory usage during transcription
-    - [ ] Monitor queue sizes to prevent overflow
+  - [x] Measure transcription performance impact - **COMPLETED**
+    - [x] Log processing time per chunk
+    - [x] Track memory usage during transcription
+    - [x] Monitor queue sizes to prevent overflow
+    - [x] Add CPU usage monitoring
+    - [x] Suppress third-party debug logs for cleaner output
+    - [x] Add queue full warnings at 80% capacity
 
 ## Phase 4: Update Caption Overlay (Final Phase - Handle with Care)
 

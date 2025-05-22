@@ -5,7 +5,19 @@ from queue import Queue
 import time
 import os
 import torch
+import psutil
+import logging
 from faster_whisper import WhisperModel
+
+# Configure logging for third-party libraries
+for lib in ['numba', 'huggingface_hub', 'whisper', 'faster_whisper']:
+    logging.getLogger(lib).setLevel(logging.WARNING)
+
+# Suppress specific warnings
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='numba')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Import with try-except to handle both direct execution and module import
 try:
@@ -265,6 +277,16 @@ class TranscriptionEngine:
             logger.debug(f"Set playback start time to {timestamp:.2f}s")
             
         try:
+            # Log queue status when it's getting full
+            queue_size = self.audio_queue.qsize()
+            queue_percent = (queue_size / self.audio_queue.maxsize) * 100
+            
+            if queue_percent > 80:  # Log warning when queue is 80% full
+                logger.warning(
+                    f"Audio queue filling up: {queue_size}/{self.audio_queue.maxsize} "
+                    f"({queue_percent:.0f}% full)"
+                )
+            
             if self._warm_up_mode:
                 # During warm-up, wait a bit if queue is full to avoid dropping chunks
                 try:
@@ -279,7 +301,10 @@ class TranscriptionEngine:
                 return True
         except queue.Full:
             if not self._warm_up_mode:  # Only log warning if not in warm-up
-                logger.warning("Audio queue full, dropping segment")
+                logger.warning(
+                    f"Audio queue full, dropping segment. "
+                    f"Queue: {self.audio_queue.qsize()}/{self.audio_queue.maxsize}"
+                )
             return False
             
     def get_transcription(self):
@@ -320,38 +345,59 @@ class TranscriptionEngine:
         
         Logging Levels:
         - INFO: Major operations, transcription results
-        - DEBUG: Processing decisions, buffer management
+        - DEBUG: Processing decisions, buffer management, performance metrics
         - TRACE: Detailed audio analysis, timing calculations
         """
-        logger.info("Starting transcription worker thread")
+        logger.info("Transcription worker started")
         consecutive_errors = 0
         max_consecutive_errors = 5
+        process = psutil.Process(os.getpid())
+        last_perf_log = time.time()
+        perf_log_interval = 5.0  # Log performance every 5 seconds
         
-        while self.is_running:
+        while self.is_running or not self.audio_queue.empty():
             try:
-                # Get next audio segment
+                # Performance monitoring
+                current_time = time.time()
+                if current_time - last_perf_log >= perf_log_interval:
+                    # Memory usage
+                    mem_info = process.memory_info()
+                    mem_mb = mem_info.rss / (1024 * 1024)  # Convert to MB
+                    
+                    # Queue sizes
+                    audio_qsize = self.audio_queue.qsize()
+                    result_qsize = self.result_queue.qsize()
+                    
+                    # System load
+                    cpu_percent = psutil.cpu_percent()
+                    
+                    logger.debug(
+                        f"Performance - "
+                        f"Memory: {mem_mb:.1f}MB | "
+                        f"CPU: {cpu_percent}% | "
+                        f"Audio Q: {audio_qsize}/{self.audio_queue.maxsize} | "
+                        f"Result Q: {result_qsize} | "
+                        f"Chunks: {self.processed_chunks} | "
+                        f"Avg proc: {self.average_processing_time*1000:.1f}ms"
+                    )
+                    last_perf_log = current_time
+                
+                # Get audio data from queue with timeout to allow checking is_running
                 try:
-                    audio_data, start_time = self.audio_queue.get(timeout=0.5)
-                    logger.debug(f"Processing audio segment at {start_time:.3f}s, "
-                                f"queue size: {self.audio_queue.qsize()}")
+                    audio_segment = self.audio_queue.get(timeout=0.5)
                     
-                    # Log audio format details at DEBUG level
-                    if audio_data is not None:
-                        audio_format = audio_data.dtype if hasattr(audio_data, 'dtype') else type(audio_data[0]).__name__
-                        audio_shape = audio_data.shape if hasattr(audio_data, 'shape') else 'N/A'
-                        logger.debug(f"Audio format: {audio_format}, shape: {audio_shape}")
+                    # Unpack the segment
+                    audio_data, timestamp = audio_segment
                     
-                    consecutive_errors = 0  # Reset error counter on successful get
-                    
+                    # Skip empty segments
+                    if audio_data is None or len(audio_data) == 0:
+                        logger.warning("Skipping empty audio segment")
+                        self.audio_queue.task_done()
+                        continue
+                        
                 except queue.Empty:
                     logger.trace("Audio queue empty, waiting for segments...")
                     time.sleep(0.1)
-                    continue
-                
-                # Skip empty segments
-                if audio_data is None or len(audio_data) == 0:
-                    logger.warning("Skipping empty audio segment")
-                    self.audio_queue.task_done()
                     continue
                 
                 try:
