@@ -4,26 +4,67 @@ import os
 import time
 import threading
 import logging
+import argparse
 
 from .video_source import VideoSource
 from .transcription import TranscriptionEngine
 from .caption_overlay import CaptionOverlay
+from .logging_utils import setup_logging, get_logger, TRACE
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Get logger instance
+logger = get_logger(__name__)
 
 # Process audio moved to TranscriptionEngine class
 
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='ISKCON-Translate Video Captioning',
+        add_help=False  # We'll add help manually to control formatting
+    )
+    
+    # Add arguments with proper formatting
+    parser.add_argument(
+        'source',
+        nargs='?',  # Make it optional
+        default=None,
+        help='Source video file path (positional or use --source)'
+    )
+    # For backward compatibility with --source
+    parser.add_argument(
+        '--source', 
+        dest='source_arg',
+        help=argparse.SUPPRESS  # Hide from help
+    )
+    parser.add_argument(
+        '--log-level', 
+        '-l',
+        default='INFO',
+        choices=['TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR'],
+        help='Set the logging level (default: %(default)s)'
+    )
+    parser.add_argument(
+        '--help',
+        '-h',
+        action='help',
+        default=argparse.SUPPRESS,
+        help='Show this help message and exit'
+    )
+    
+    return parser.parse_args()
+
 def main(video_file=None):
-    """Minimal main function with hardcoded values."""
-    # Use hardcoded video file if none provided
+    """Main function for synchronized video captioning."""
+    # Parse command line arguments
+    args = parse_arguments()
+    
+    # Set up logging with specified level
+    setup_logging(args.log_level)
+    
+    # Use provided source file (from either positional or --source) or fallback
+    video_file = args.source or args.source_arg or video_file
     if video_file is None:
-        # Use a pre-downloaded video from cache
-        # Assuming there's a video in the cache dir
+        # Fallback to default video in cache
         video_file = os.path.join(os.path.expanduser("~/.video_cache"), "3YhGU6vVBg8.mp4")
     
     try:

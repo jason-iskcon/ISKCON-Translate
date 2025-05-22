@@ -2,15 +2,21 @@
 
 This MVP implements a video captioning system with precisely synchronized audio, video, and caption overlay. The implementation employs a sophisticated timestamp-based synchronization architecture to ensure perfect alignment of all media components.
 
-## Key Synchronization Features
+## Key Features
 
 1. **Timestamp-Based Synchronization**: All components (video, audio, captions) are synchronized using a common timeline based on presentation timestamps (PTS).
 
-2. **Buffer Management**: Intelligent buffer management to ensure smooth video playback while maintaining audio-video sync.
+2. **Advanced Logging System**:
+   - Multiple log levels (TRACE, DEBUG, INFO, WARNING, ERROR)
+   - Colored console output for better readability
+   - Thread-safe logging implementation
+   - Configurable log levels via command line
 
-3. **Coordinated Processing Pipeline**: Separate threads for audio and video processing, carefully coordinated through timestamps.
+3. **Buffer Management**: Intelligent buffer management to ensure smooth video playback while maintaining audio-video sync.
 
-4. **Caption Timing**: Captions are displayed based on their original audio timestamps, ensuring proper alignment with video content.
+4. **Coordinated Processing Pipeline**: Separate threads for audio and video processing, carefully coordinated through timestamps.
+
+5. **Caption Timing**: Captions are displayed based on their original audio timestamps, ensuring proper alignment with video content.
 
 ## Technical Synchronization Architecture
 
@@ -87,18 +93,29 @@ The system implements a multi-threaded, producer-consumer pattern with the follo
 - Hardware-accelerated video decoding (recommended)
 - Pre-downloaded Whisper model in the Hugging Face cache (~/.cache/huggingface/hub)
 
-### Running the MVP
+### Usage
 
-1. To caption a YouTube video:
-   ```
-   python run.py --source "https://www.youtube.com/watch?v=VIDEO_ID"
-   ```
+### Basic Usage
+```bash
+# Basic usage with default logging (INFO level)
+python -m src.main --source "path/to/video.mp4"
 
-2. To caption a local video file:
-   ```
-   python run.py --source "/path/to/video.mp4"
-   ```
+# With different log levels
+python -m src.main --source "path/to/video.mp4" --log-level DEBUG
 
+# For maximum verbosity (development only)
+python -m src.main --source "path/to/video.mp4" --log-level TRACE
+
+# Show help message
+python -m src.main --help
+```
+
+### Log Levels
+- `TRACE`: Most verbose, includes detailed frame-by-frame information
+- `DEBUG`: Detailed debug information
+- `INFO`: General operational messages (default)
+- `WARNING`: Only warnings and errors
+- `ERROR`: Only error messages
 The application will display the video with synchronized captions in a window. Press 'p' to pause/resume and 'q' to quit.
 
 ## Simplifications for MVP
