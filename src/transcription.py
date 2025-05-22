@@ -219,6 +219,8 @@ class TranscriptionEngine:
             if cleared > 0:
                 logger.debug(f"Cleared {cleared} pending results from queue")
             
+            # Reset playback start time for next session
+            self.playback_start_time = 0.0
             logger.info("Transcription engine stopped successfully")
             return True
             
@@ -233,11 +235,34 @@ class TranscriptionEngine:
             audio_segment: Tuple of (audio_data, timestamp)
             
         Returns:
-            bool: True if segment was added successfully, False if queue was full
+            bool: True if segment was added successfully, False if queue was full or invalid input
+            
+        Raises:
+            ValueError: If audio_segment is not a tuple of (audio_data, timestamp)
         """
+        # Input validation
+        if not isinstance(audio_segment, tuple) or len(audio_segment) != 2:
+            raise ValueError("audio_segment must be a tuple of (audio_data, timestamp)")
+            
+        audio_data, timestamp = audio_segment
+        
+        # Check if audio data is valid
+        if not isinstance(audio_data, np.ndarray):
+            logger.error("Invalid audio data: expected numpy array")
+            return False
+            
+        if len(audio_data) == 0:
+            logger.warning("Received empty audio segment")
+            return False
+            
         if not self.is_running:
             logger.warning("Transcription not running, ignoring audio segment")
             return False
+            
+        # Set playback_start_time to the timestamp of the first segment if not already set
+        if self.playback_start_time == 0.0 and timestamp > 0:
+            self.playback_start_time = timestamp
+            logger.debug(f"Set playback start time to {timestamp:.2f}s")
             
         try:
             if self._warm_up_mode:
