@@ -53,7 +53,7 @@ class CaptionOverlay:
         """
         logger.info(f"[TIMING] Setting video start time to {start_time} (current time: {time.time()})")
         self.video_start_time = start_time
-        logger.info(f"[TIMING] Video start time set. Current offset: {time.time() - start_time:.2f}s")
+        logger.info(f"[TIMING] Video start time set to {start_time}. Current offset: {time.time() - start_time:.2f}s")
         
     # Context manager methods for resource management
     def __enter__(self):
@@ -112,6 +112,8 @@ class CaptionOverlay:
             if not text.strip():
                 logger.debug("Skipping empty caption")
                 return None
+                
+            logger.debug(f"Adding caption: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.2f}s for {duration:.1f}s")
                 
             # Clean up the text (remove duplicate lines, extra spaces)
             text = '\n'.join([line.strip() for line in text.split('\n') if line.strip()])
@@ -205,6 +207,18 @@ class CaptionOverlay:
             before = len(self.captions)
             max_future_offset = 30  # 30 seconds in the future max
             
+            removed_captions = [
+                c for c in self.captions 
+                if not ((c['end_time'] >= current_time - buffer) and 
+                      (c['start_time'] <= current_time + max_future_offset))
+            ]
+            
+            # Log removed captions
+            for c in removed_captions:
+                logger.debug(f"[CAPTION] Pruning caption (expired): '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' "
+                           f"(displayed {c.get('display_count', 0)} times, duration: {c['end_time']-c['start_time']:.1f}s)")
+            
+            # Keep only active captions
             self.captions = [
                 c for c in self.captions 
                 if (c['end_time'] >= current_time - buffer) and 
@@ -309,7 +323,7 @@ class CaptionOverlay:
                     if 'display_count' not in c:
                         c['display_count'] = 0
                     if c['display_count'] == 0:
-                        logger.info(f"[CAPTION] Displaying caption for first time: '{c['text']}'")
+                        logger.info(f"[CAPTION] First display: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' at {current_relative_time:.2f}s")
                     c['display_count'] += 1
                     
                     active_captions.append(c)
