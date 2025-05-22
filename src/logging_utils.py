@@ -8,6 +8,7 @@ This module provides enhanced logging functionality including:
 """
 
 import logging
+import os
 import sys
 from typing import Optional, Union
 
@@ -51,11 +52,12 @@ class ColoredFormatter(logging.Formatter):
             record.levelname = f"{self.COLORS[levelname]}{levelname:8}{self.COLORS['RESET']}"
         return super().format(record)
 
-def setup_logging(level: Union[str, int] = logging.INFO) -> None:
-    """Set up logging with the specified log level.
+def setup_logging(level: Union[str, int] = logging.INFO, log_file: Optional[str] = None) -> None:
+    """Set up logging with the specified log level and optional log file.
     
     Args:
         level: Logging level (string or int)
+        log_file: Optional path to a log file. If None, logs only to console.
     """
     if isinstance(level, str):
         level = level.upper()
@@ -64,8 +66,12 @@ def setup_logging(level: Union[str, int] = logging.INFO) -> None:
         else:
             level = getattr(logging, level, logging.INFO)
     
-    # Create formatter
-    formatter = ColoredFormatter(
+    # Create formatters
+    colored_formatter = ColoredFormatter(
+        '%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_formatter = logging.Formatter(
         '%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
@@ -78,14 +84,30 @@ def setup_logging(level: Union[str, int] = logging.INFO) -> None:
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    # Add console handler
+    # Add console handler with colored output
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(colored_formatter)
     root_logger.addHandler(console_handler)
     
-    # Log the logging level
+    # Add file handler if log_file is specified
+    if log_file:
+        # Create directory if it doesn't exist
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+            
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+    
+    # Log the logging level and output location
     logger = logging.getLogger(__name__)
-    logger.info("Logging initialized at level %s", logging.getLevelName(level))
+    if log_file:
+        logger.info("Logging initialized at level %s to %s", 
+                   logging.getLevelName(level), os.path.abspath(log_file))
+    else:
+        logger.info("Logging initialized at level %s (console only)", 
+                   logging.getLevelName(level))
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
     """Get a logger with the given name.

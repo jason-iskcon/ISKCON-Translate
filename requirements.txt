@@ -8,3 +8,8 @@ pyaudio>=0.2.13
 moviepy>=1.0.3
 sounddevice>=0.4.5
 soundfile>=0.10.0
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+colorama>=0.4.6  # For colored output in Windows
