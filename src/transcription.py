@@ -3,16 +3,21 @@ import threading
 import queue
 from queue import Queue
 import time
-import logging
 import os
 from faster_whisper import WhisperModel
 import torch
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Import with try-except to handle both direct execution and module import
+try:
+    from logging_utils import get_logger, setup_logging
+except ImportError:
+    from .logging_utils import get_logger, setup_logging
+
+# Get logger instance
+logger = get_logger(__name__)
 
 # Set faster_whisper logger to WARNING level to reduce verbosity
+import logging
 logging.getLogger('faster_whisper').setLevel(logging.WARNING)
 
 class TranscriptionEngine:

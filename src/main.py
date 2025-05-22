@@ -6,10 +6,17 @@ import threading
 import logging
 import argparse
 
-from .video_source import VideoSource
-from .transcription import TranscriptionEngine
-from .caption_overlay import CaptionOverlay
-from .logging_utils import setup_logging, get_logger, TRACE
+# Import with try-except to handle both direct execution and module import
+try:
+    from video_source import VideoSource
+    from transcription import TranscriptionEngine
+    from caption_overlay import CaptionOverlay
+    from logging_utils import setup_logging, get_logger, TRACE
+except ImportError:
+    from .video_source import VideoSource
+    from .transcription import TranscriptionEngine
+    from .caption_overlay import CaptionOverlay
+    from .logging_utils import setup_logging, get_logger, TRACE
 
 # Get logger instance
 logger = get_logger(__name__)

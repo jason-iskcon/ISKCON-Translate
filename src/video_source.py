@@ -9,10 +9,14 @@ import logging
 import sounddevice as sd
 import subprocess
 import soundfile as sf
+# Import with try-except to handle both direct execution and module import
+try:
+    from logging_utils import TRACE, setup_logging, get_logger
+except ImportError:
+    from .logging_utils import TRACE, setup_logging, get_logger
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Configure logging with our custom utilities
+logger = get_logger(__name__)
 
 class VideoSource:
     def __init__(self, source, start_time=0.0):
@@ -22,10 +26,15 @@ class VideoSource:
             source: Path to video file (should be in ~/.video_cache)
             start_time: Time position (in seconds) to start playback from
         """
+        self.logger = get_logger(f"{__name__}.VideoSource")
+        self.logger.info(f"Initializing VideoSource with source: {source}, start_time: {start_time}")
+        
         # Use source directly if it's an absolute path, otherwise assume it's in cache
         self.source = source
         if not os.path.isabs(source):
-            self.source = os.path.join(os.path.expanduser("~/.video_cache"), source)
+            cache_dir = os.path.expanduser("~/.video_cache")
+            self.source = os.path.join(cache_dir, source)
+            self.logger.debug(f"Using cached video path: {self.source}")
             
         # Initialize queue for synchronized playback with larger buffer
         self.frames_queue = Queue(maxsize=120)  # Increased from 30 to 120 frames (about 4 seconds at 30fps)
@@ -61,18 +70,44 @@ class VideoSource:
         """Start video capture and processing."""
         with self._lock:
             if self.is_running:
+                self.logger.warning("Video source is already running")
                 return
+            self.logger.info("Starting video source")
             
             try:
                 # Start video capture directly from source but don't open window yet
-                logger.info(f"Opening video source: {self.source}")
+                self.logger.info(f"Opening video source: {self.source}")
+                start_time = time.time()
                 self._cap = cv2.VideoCapture(self.source)
                 
                 if not self._cap.isOpened():
-                    raise RuntimeError(f"Failed to open video: {self.source}")
+                    error_msg = f"Failed to open video: {self.source}"
+                    self.logger.error(error_msg)
+                    raise RuntimeError(error_msg)
                     
-                # Get video info
+                open_time = time.time() - start_time
+                self.logger.debug(f"Video opened in {open_time:.3f} seconds")
+                    
+                # Get and log video properties
                 self._video_fps = self._cap.get(cv2.CAP_PROP_FPS)
+                width = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                duration = frame_count / self._video_fps if self._video_fps > 0 else 0
+                
+                self.logger.info(
+                    f"Video properties - Resolution: {width}x{height}, "
+                    f"FPS: {self._video_fps:.2f}, "
+                    f"Duration: {duration:.2f}s, "
+                    f"Frames: {frame_count}"
+                )
+                self.logger.debug(f"Video backend: {self._cap.getBackendName()}")
+                
+                # Log detailed codec information at TRACE level
+                if logger.isEnabledFor(TRACE):
+                    codec = int(self._cap.get(cv2.CAP_PROP_FOURCC))
+                    codec_str = "".join([chr((codec >> 8 * i) & 0xFF) for i in range(4)])
+                    self.logger.log(TRACE, f"Video codec: {codec_str} (0x{codec:08X})")
                 
                 # Set initial frame count based on start_time if specified
                 if self.start_time > 0:
@@ -186,10 +221,16 @@ class VideoSource:
             
     def _capture_frames(self):
         """Capture frames with synchronization to audio."""
-        logger.info("Video thread ready, waiting for warm-up to complete")
+        self.logger.info("Video thread ready, waiting for warm-up to complete")
         
         # Calculate frame time based on FPS
         frame_time = 1.0 / self._video_fps if self._video_fps > 0 else 0.033  # Default to ~30fps if fps is 0
+        self.logger.debug(f"Target frame time: {frame_time*1000:.1f}ms ({1/frame_time:.1f} fps)")
+        
+        # Track frame statistics
+        frame_count = 0
+        total_process_time = 0.0
+        last_stats_time = time.time()
         
         # Wait for warm-up to complete before doing anything
         while not self.warm_up_complete.is_set() and not self._shutdown_event.is_set():
@@ -200,13 +241,17 @@ class VideoSource:
             return
             
         # Now that warm-up is complete, initialize video playback
-        logger.info(f"Starting video playback at {self.start_time:.2f}s")
+        self.logger.info(f"Starting video playback at {self.start_time:.2f}s")
         
         # Reset video capture to the beginning
         self._cap.release()
+        start_time = time.time()
         self._cap = cv2.VideoCapture(self.source)
         self._frame_count = int(self.start_time * self._video_fps)
         self._cap.set(cv2.CAP_PROP_POS_FRAMES, self._frame_count)
+        
+        seek_time = (time.time() - start_time) * 1000
+        self.logger.debug(f"Seek to frame {self._frame_count} took {seek_time:.1f}ms")
         
         # Clear any existing frames in the queue
         while not self.frames_queue.empty():
@@ -220,45 +265,80 @@ class VideoSource:
         
         # Set common start time for sync
         self.playback_start_time = time.time()
-        logger.info(f"Video playback started at {self.playback_start_time}")
+        self.logger.info(f"Video playback started at {self.playback_start_time}")
+        self.logger.debug(f"Starting frame processing loop at {time.time() - self.playback_start_time:.3f}s")
         
         try:
             while self.is_running and not self._shutdown_event.is_set():
                 start_time = time.time()
                 
                 # Read the next frame
+                frame_start = time.time()
                 ret, frame = self._cap.read()
+                frame_count += 1
+                
                 if not ret:
-                    logger.info("End of video reached")
+                    self.logger.info(f"End of video reached. Total frames processed: {frame_count}")
                     break
+                    
+                # Log frame processing stats every second
+                current_time = time.time()
+                if current_time - last_stats_time >= 1.0:
+                    elapsed = current_time - self.playback_start_time
+                    fps = frame_count / elapsed if elapsed > 0 else 0
+                    avg_process = (total_process_time / frame_count * 1000) if frame_count > 0 else 0
+                    
+                    self.logger.debug(
+                        f"Frame {frame_count}: {fps:.1f} fps, "
+                        f"Queue: {self.frames_queue.qsize()}/{self.frames_queue.maxsize}, "
+                        f"Avg process: {avg_process:.1f}ms"
+                    )
+                    last_stats_time = current_time
                 
                 # Calculate timestamp for this frame based on frame number
                 current_pts = (self._frame_count - int(self.start_time * self._video_fps)) * frame_time
                 self._frame_count += 1
                 
                 # Queue frame with timestamp
-                current_time = time.time()
+                process_time = time.time() - frame_start
+                total_process_time += process_time
+                
+                # Log detailed frame timing at TRACE level
+                if self.logger.isEnabledFor(TRACE):
+                    self.logger.log(
+                        TRACE,
+                        f"Frame {frame_count}: processed in {process_time*1000:.1f}ms, "
+                        f"pts: {current_pts:.3f}s"
+                    )
+                
+                # Queue management with detailed logging
                 qsize = self.frames_queue.qsize()
                 
                 # Only log queue status if it's getting full (over 80%)
                 if qsize > self.frames_queue.maxsize * 0.8:
-                    if current_time - getattr(self, 'last_queue_warning', 0) > 1.0:  # Rate limit warnings
-                        logger.warning(f"Frame queue {qsize}/{self.frames_queue.maxsize} ({(qsize/self.frames_queue.maxsize*100):.1f}% full)")
-                        self.last_queue_warning = current_time
+                    if time.time() - getattr(self, 'last_queue_warning', 0) > 1.0:  # Rate limit warnings
+                        self.logger.warning(
+                            f"Frame queue {qsize}/{self.frames_queue.maxsize} ({(qsize/self.frames_queue.maxsize*100):.1f}% full)"
+                        )
+                        self.last_queue_warning = time.time()
                 
                 # Try to put frame without blocking
                 try:
                     self.frames_queue.put_nowait((frame, current_pts))
-                    logger.debug(f"Queued frame at {current_pts:.2f}s (qsize: {qsize+1})")
+                    if self.logger.isEnabledFor(logging.DEBUG):
+                        self.logger.debug(f"Queued frame {frame_count} at {current_pts:.3f}s (qsize: {qsize+1})")
                 except queue.Full:
-                    if current_time - getattr(self, 'last_queue_warning', 0) > 1.0:  # Rate limit warnings
-                        logger.warning(f"Frame queue full ({qsize}), dropping frame at {current_pts:.2f}s")
-                        self.last_queue_warning = current_time
-                
+                    if time.time() - self.last_queue_warning > 1.0:  # Rate limit warnings
+                        self.logger.warning(
+                            f"Frame queue full ({qsize}), dropping frame {frame_count} at {current_pts:.3f}s"
+                        )
+                        self.last_queue_warning = time.time()
+                        
                 # Calculate time to sleep to maintain frame rate
-                process_time = time.time() - start_time
+                process_time = time.time() - frame_start
                 sleep_time = max(0, frame_time - process_time)
-                time.sleep(sleep_time)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
                 
         except Exception as e:
             logger.error(f"Error in frame capture: {e}")
@@ -268,10 +348,18 @@ class VideoSource:
     def _play_audio(self, audio_file):
         """Play audio using sounddevice with proper stream handling to avoid distortion."""
         try:
-            logger.info(f"Preparing audio playback from {audio_file}")
+            self.logger.info(f"Preparing audio playback from {audio_file}")
             
-            # Load audio file
+            # Load audio file with timing
+            load_start = time.time()
             data, sample_rate = sf.read(audio_file)
+            load_time = time.time() - load_start
+            
+            self.logger.debug(
+                f"Audio loaded: {len(data)/sample_rate:.2f}s duration, "
+                f"{sample_rate}Hz, {data.shape[1] if len(data.shape) > 1 else 1} channels, "
+                f"loaded in {load_time*1000:.1f}ms"
+            )
             
             # Convert audio to float32 if not already in that format
             if data.dtype != np.float32:
@@ -296,7 +384,15 @@ class VideoSource:
                 nonlocal frames_played
                 
                 if status:
-                    logger.warning(f"Audio callback status: {status}")
+                    self.logger.warning(f"Audio callback status: {status}")
+                
+                # Log detailed audio callback info at TRACE level
+                if self.logger.isEnabledFor(TRACE):
+                    self.logger.log(
+                        TRACE,
+                        f"Audio callback: frames={frames}, time_info={time_info}, "
+                        f"position={frames_played/sample_rate:.3f}s"
+                    )
                 
                 # Check if we've reached the end of the audio
                 if frames_played + frames > len(data):
@@ -305,6 +401,7 @@ class VideoSource:
                     if remaining > 0:
                         outdata[:remaining] = data[frames_played:frames_played+remaining]
                         outdata[remaining:].fill(0)
+                        self.logger.debug(f"Playing final audio chunk: {remaining} samples")
                     else:
                         outdata.fill(0)
                     
@@ -313,6 +410,7 @@ class VideoSource:
                     with self.audio_position_lock:
                         self.audio_position = current_time
                         
+                    self.logger.info(f"Audio playback completed at {current_time:.2f}s")
                     return sd.CallbackStop
                 
                 # Copy the data
@@ -466,22 +564,58 @@ class VideoSource:
             
     def stop(self):
         """Stop all threads and release resources."""
-        logger.info("Stopping video source")
-        self.is_running = False
-        self.audio_playing = False
-        self._shutdown_event.set()
-        
-        if hasattr(self, 'video_thread') and self.video_thread:
-            self.video_thread.join(timeout=1.0)
+        with self._lock:
+            if not self.is_running:
+                self.logger.debug("Video source already stopped")
+                return
+                
+            self.logger.info("Stopping video source...")
             
-        if hasattr(self, 'audio_thread') and self.audio_thread:
-            self.audio_thread.join(timeout=1.0)
-            
-        if hasattr(self, '_cap') and self._cap:
-            self._cap.release()
-            
-        # Stop any playing audio
-        sd.stop()
+            try:
+                # Signal threads to stop
+                self.is_running = False
+                self._shutdown_event.set()
+                
+                # Stop audio if playing
+                self.audio_playing = False
+                
+                # Log queue status before cleanup
+                qsize = self.frames_queue.qsize()
+                if qsize > 0:
+                    self.logger.debug(f"Clearing frame queue with {qsize} pending frames")
+                
+                # Wait for threads to finish
+                if hasattr(self, 'audio_thread') and self.audio_thread and self.audio_thread.is_alive():
+                    self.logger.debug("Waiting for audio thread to finish...")
+                    self.audio_thread.join(timeout=1.0)
+                    if self.audio_thread.is_alive():
+                        self.logger.warning("Audio thread did not stop gracefully")
+                
+                # Release video capture
+                if hasattr(self, '_cap') and self._cap is not None:
+                    try:
+                        self._cap.release()
+                        self.logger.debug("Video capture released")
+                    except Exception as e:
+                        self.logger.error(f"Error releasing video capture: {e}")
+                
+                # Clear frame queue
+                cleared_frames = 0
+                while not self.frames_queue.empty():
+                    try:
+                        self.frames_queue.get_nowait()
+                        cleared_frames += 1
+                    except queue.Empty:
+                        break
+                        
+                if cleared_frames > 0:
+                    self.logger.debug(f"Cleared {cleared_frames} frames from queue")
+                
+                self.logger.info("Video source stopped successfully")
+                
+            except Exception as e:
+                self.logger.error(f"Error during video source shutdown: {e}", exc_info=True)
+                raise
             
     def __enter__(self):
         self.start()

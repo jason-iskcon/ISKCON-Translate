@@ -110,13 +110,108 @@ python -m src.main --source "path/to/video.mp4" --log-level TRACE
 python -m src.main --help
 ```
 
-### Log Levels
-- `TRACE`: Most verbose, includes detailed frame-by-frame information
+### Logging System
+
+The application features a comprehensive logging system with the following capabilities:
+
+#### Log Levels
+- `TRACE`: Most verbose, includes detailed frame-by-frame information and timing
+  - Frame processing times
+  - Audio callback details
+  - Video codec information
+  - Buffer status updates
 - `DEBUG`: Detailed debug information
+  - Frame counters
+  - Buffer queue sizes
+  - Processing decisions
+  - System resource usage
 - `INFO`: General operational messages (default)
+  - Video/audio initialization
+  - Major state changes
+  - Warnings and errors
 - `WARNING`: Only warnings and errors
 - `ERROR`: Only error messages
-The application will display the video with synchronized captions in a window. Press 'p' to pause/resume and 'q' to quit.
+
+#### Usage Examples
+
+```bash
+# Basic usage with default logging (INFO level)
+python -m src.main --source "path/to/video.mp4"
+
+# Enable debug logging for troubleshooting
+python -m src.main --source "path/to/video.mp4" --log-level DEBUG
+
+# Enable trace logging for detailed frame-by-frame analysis
+python -m src.main --source "path/to/video.mp4" --log-level TRACE
+
+# Save logs to a file
+python -m src.main --source "path/to/video.mp4" --log-file app.log
+
+# Combine log level and log file
+python -m src.main --source "path/to/video.mp4" --log-level DEBUG --log-file debug.log
+
+# Show help message with all available options
+python -m src.main --help
+```
+
+#### Keyboard Controls
+- `p`: Pause/Resume playback
+- `q`: Quit the application
+- `→`: Skip forward 5 seconds
+- `←`: Skip backward 5 seconds
+- `Space`: Toggle play/pause
+
+### Log File Analysis
+
+When running with `--log-file` option, the application creates detailed log files that can be analyzed for performance and debugging:
+
+- **Timing Information**: Track frame processing times and synchronization accuracy
+- **Resource Usage**: Monitor memory and CPU usage patterns
+- **Error Analysis**: Detailed error messages with timestamps for troubleshooting
+- **Performance Metrics**: Frame drops, buffer levels, and processing delays
+
+## Testing
+
+The project includes a comprehensive test suite to ensure code quality and reliability. Tests are organized into three categories:
+
+### Unit Tests
+
+Unit tests verify the functionality of individual components in isolation.
+
+```bash
+# Run all unit tests
+pytest tests/unit/ -v
+
+# Run specific test file
+pytest tests/unit/test_transcription.py -v
+
+# Run specific test case
+pytest tests/unit/test_logging_utils.py::TestLogLevels -v
+```
+
+### System Tests
+
+System tests verify the integration between components and end-to-end functionality.
+
+```bash
+# Run all system tests
+pytest tests/sys/ -v
+
+# Run with detailed logging
+pytest tests/sys/ -v --log-level=DEBUG
+```
+
+### Performance Tests
+
+Performance tests measure the impact of logging and other operations on system performance.
+
+```bash
+# Run performance tests
+pytest tests/perf/ -v
+
+# Run performance tests with timing information
+pytest tests/perf/ -v --durations=10
+```
 
 ## Simplifications for MVP
 
@@ -124,4 +219,3 @@ The application will display the video with synchronized captions in a window. P
 2. Extracts audio in a simplified manner (real implementation would use proper audio demuxing)
 3. Limited to English language only (no Sanskrit support in MVP)
 4. Uses pre-downloaded Whisper models from cache only
-5. Basic error handling and logging

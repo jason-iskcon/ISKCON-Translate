@@ -1,9 +1,15 @@
 import cv2
 import numpy as np
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+# Import with try-except to handle both direct execution and module import
+try:
+    from logging_utils import get_logger
+except ImportError:
+    from .logging_utils import get_logger
+
+# Get logger instance
+logger = get_logger(__name__)
 
 class CaptionOverlay:
     def __init__(self, font_scale=1.0, font_thickness=2, font_color=(255, 255, 255),

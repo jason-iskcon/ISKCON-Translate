@@ -59,13 +59,13 @@ This document outlines the step-by-step process to implement an enhanced logging
 
 ## Phase 2: Update Video Source
 
-- [ ] **2.1 Update video_source.py**
-  - [ ] Import TRACE level from logging_utils
-  - [ ] Categorize frame processing logs
-  - [ ] Move frame timing details to TRACE
-  - [ ] Keep video initialization in INFO
-  - [ ] Add frame counter logging at DEBUG level
-  - [ ] Log video properties at startup (resolution, FPS, etc.)
+- [x] **2.1 Update video_source.py**
+  - [x] Import TRACE level from logging_utils
+  - [x] Categorize frame processing logs
+  - [x] Move frame timing details to TRACE
+  - [x] Keep video initialization in INFO
+  - [x] Add frame counter logging at DEBUG level
+  - [x] Log video properties at startup (resolution, FPS, etc.)
 
 - [ ] **2.2 Verification: Video Loading**
   - [ ] Verify video loads correctly with new logging
