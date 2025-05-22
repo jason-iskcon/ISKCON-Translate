@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger('faster_whisper').setLevel(logging.WARNING)
 
 class TranscriptionEngine:
+    playback_start_time = 0.0  # Global playback time origin for sync
     def __init__(self, config=None):
         """Initialize the transcription engine.
         
@@ -30,6 +31,9 @@ class TranscriptionEngine:
         self.latest_timestamp = 0.0
         self.last_emitted_caption_time = 0.0
         self.transcription_thread = None
+        self.processing_start_time = 0.0  # Track when processing starts
+        self.processed_chunks = 0  # Count of processed chunks
+        self.average_processing_time = 0.0  # Track average processing time
         
         # Initialize faster-whisper model
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -100,189 +104,135 @@ class TranscriptionEngine:
             return None
             
     def _transcription_worker(self):
-        """Process audio segments and generate transcriptions with timestamps at sentence level.
+        """Worker thread that processes audio segments and generates transcriptions."""
+        logger.info("Transcription worker started")
         
-        This worker processes audio chunks using a sliding window approach with overlap
-        to ensure smooth, continuous transcription. It handles word-level timestamps
-        and assembles complete sentences before emitting them.
-        """
-        logger.info("Starting transcription worker")
-        
-        # Buffer to hold partial words between chunks
-        partial_word = ""
-        partial_word_start = None
-        
-        try:
-            while self.is_running:
+        while self.is_running:
+            try:
+                # Get next audio segment
                 try:
-                    # Get audio data from queue
-                    audio_data, chunk_start_time = self.audio_queue.get(timeout=0.5)
-                    if audio_data is None:  # Sentinel value to stop
-                        break
-                    
-                    logger.debug(f"Processing audio chunk starting at {chunk_start_time:.2f}s")
-                    
-                    try:
-                        # Process audio with Whisper using word-level timestamps
-                        segments, info = self.model.transcribe(
-                            audio_data,
-                            language='en',
-                            word_timestamps=True,
-                            vad_filter=True,
-                            vad_parameters=dict(
-                                threshold=0.5,
-                                min_silence_duration_ms=500
-                            )
-                        )
-                        # Convert generator to list to allow indexing
-                        segments = list(segments) if segments else []
-                        
-                        # Process segments and emit complete sentences
-                        current_sentence = []
-                        sentence_start = None
-                        
-                        # Handle any partial word from previous chunk
-                        if partial_word:
-                            current_sentence.append(partial_word)
-                            if partial_word_start is not None:
-                                sentence_start = partial_word_start
-                            partial_word = ""
-                        
-                        for segment in segments:
-                            for word in segment.words:
-                                word_text = word.word.strip()
-                                if not word_text:
-                                    continue
-                                
-                                # Calculate absolute timestamps
-                                word_start = chunk_start_time + (word.start or 0)
-                                word_end = chunk_start_time + (word.end or 0)
-                                
-                                # Check if this is a continuation of a word from previous chunk
-                                if not current_sentence and not word_text[0].isspace() and word_start > chunk_start_time + 0.1:
-                                    # This might be the continuation of a word from previous chunk
-                                    if not partial_word:
-                                        partial_word = word_text
-                                        partial_word_start = word_start
-                                        continue
-                                
-                                # Start new sentence if needed
-                                if not current_sentence:
-                                    sentence_start = word_start
-                                
-                                # Add word to current sentence
-                                current_sentence.append(word_text)
-                                
-                                # Check for sentence end (period, question mark, exclamation mark)
-                                if word_text.endswith(('.', '?', '!')):
-                                    if current_sentence:
-                                        # Emit complete sentence
-                                        sentence_text = ' '.join(current_sentence)
-                                        self.result_queue.put({
-                                            'text': sentence_text,
-                                            'timestamp': sentence_start,
-                                            'end_time': word_end,
-                                            'language': 'english',
-                                            'is_final': False
-                                        })
-                                        logger.debug(f"Emitted sentence: '{sentence_text}' at {sentence_start:.2f}-{word_end:.2f}s")
-                                        current_sentence = []
-                                        sentence_start = None
-                        
-                        # Handle any partial sentence at the end of the chunk
-                        if current_sentence:
-                            # Keep the last partial word for the next chunk
-                            if current_sentence and current_sentence[-1] and not current_sentence[-1][-1] in '.!?':
-                                partial_word = current_sentence.pop()
-                                last_segment_end = segments[-1].end if segments and hasattr(segments[-1], 'end') else 0
-                                partial_word_start = chunk_start_time + last_segment_end - 0.1  # Approximate
-                            
-                            # Emit any complete sentences we have
-                            if current_sentence:
-                                sentence_text = ' '.join(current_sentence)
-                                sentence_end = chunk_start_time + (segments[-1].end if segments else 0) - (len(partial_word) * 0.1 if partial_word else 0)
-                                self.result_queue.put({
-                                    'text': sentence_text,
-                                    'timestamp': sentence_start or chunk_start_time,
-                                    'end_time': sentence_end,
-                                    'language': 'english',
-                                    'is_final': False
-                                })
-                                logger.debug(f"Emitted partial sentence: '{sentence_text}...' at {sentence_start or chunk_start_time:.2f}-{sentence_end:.2f}s")
-                        
-                        # Update latest timestamp if we have segments
-                        if segments and hasattr(segments[-1], 'end'):
-                            self.latest_timestamp = chunk_start_time + segments[-1].end
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing audio chunk: {e}", exc_info=True)
-                    
-                    # Mark task as done
-                    self.audio_queue.task_done()
-                    
+                    audio_data, start_time = self.audio_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
+                
+                # Skip empty segments
+                if audio_data is None or len(audio_data) == 0:
+                    logger.warning("Skipping empty audio segment")
+                    self.audio_queue.task_done()
+                    continue
+                
+                try:
+                    # Get current audio position for timing comparison
+                    current_time = getattr(self, 'current_audio_time', 0)
                     
+                    # Transcribe the audio
+                    segments, _ = self.model.transcribe(
+                        audio_data,
+                        language="en",
+                        beam_size=5,
+                        word_timestamps=True
+                    )
+                    
+                    # Process each transcribed segment
+                    for segment in segments:
+                        if not segment.text.strip():
+                            continue
+                            
+                        # Calculate absolute timestamps
+                        # Use global playback_start_time as the timestamp origin for all captions
+                        start = self.playback_start_time + segment.start
+                        end = self.playback_start_time + segment.end
+                        logger.info(f"[TIMING] Caption segment: '{segment.text.strip()}' start={start:.2f} end={end:.2f} (origin={self.playback_start_time:.2f})")
+                        
+                        # Calculate timing difference from current audio position
+                        time_diff = start - current_time
+                        
+                        # Format the timestamp with color coding
+                        if time_diff > 1.0:  # More than 1 second ahead
+                            time_str = f"\033[32m+{time_diff:.2f}s\033[0m"  # Green
+                        elif time_diff < -1.0:  # More than 1 second behind
+                            time_str = f"\033[31m{time_diff:+.2f}s\033[0m"  # Red
+                        else:  # Within 1 second (on time)
+                            time_str = f"\033[33m{time_diff:+.2f}s\033[0m"  # Yellow
+                        
+                        # Log the transcription with relative timing
+                        logger.info(f"Transcribed {time_str}: '{segment.text.strip()}' (abs: {start:.2f}s-{end:.2f}s)")
+                        
+                        # Add to result queue for display
+                        try:
+                            self.result_queue.put_nowait({
+                                'text': segment.text.strip(),
+                                'timestamp': start,
+                                'duration': end - start
+                            })
+                        except queue.Full:
+                            logger.warning("Result queue full, dropping transcription")
+                        
+
+                
                 except Exception as e:
-                    logger.error(f"Error in transcription worker: {e}", exc_info=True)
-                    time.sleep(0.1)
+                    logger.error(f"Error in transcription: {e}", exc_info=True)
+                
+                finally:
+                    self.audio_queue.task_done()
             
-            # Emit any remaining partial sentence before stopping
-            if partial_word:
-                self.result_queue.put({
-                    'text': partial_word,
-                    'timestamp': partial_word_start or self.latest_timestamp,
-                    'end_time': (self.latest_timestamp + 0.5) if hasattr(self, 'latest_timestamp') else 0.5,
-                    'language': 'english',
-                    'is_final': False
-                })
-                    
-        except Exception as e:
-            logger.error(f"Fatal error in transcription worker: {e}", exc_info=True)
-        finally:
-            logger.info("Transcription worker stopped")
+            except Exception as e:
+                logger.error(f"Error in worker loop: {e}", exc_info=True)
+                time.sleep(0.1)
+        
+        logger.info("Transcription worker stopped")
 
     def process_audio(self, video_source):
         """Process audio from video source and send to transcriber.
         
-        This method uses a sliding window approach to process audio in overlapping chunks
-        for better transcription quality and continuity.
+        This method processes audio in chunks during warm-up and continues
+        processing during playback for real-time transcription.
         
         Args:
             video_source: The video source to get audio chunks from
         """
         logger.info("Starting audio processing thread")
-        overlap = 2.0  # 2-second overlap between chunks for smooth transitions
-        last_process_time = -self.chunk_size  # Ensure we process immediately
+        chunk_size = 3.0  # Process 3-second chunks
+        overlap = 1.0     # 1-second overlap for better continuity
+        last_process_time = 0
+        video_start_time = video_source.start_time if hasattr(video_source, 'start_time') else 0.0
         
         try:
             while video_source.is_running and not video_source._shutdown_event.is_set():
                 try:
-                    # Get current audio position
-                    with video_source.audio_position_lock:
-                        current_time = video_source.audio_position
+                    # Get current time or position
+                    if video_source.warm_up_complete.is_set():
+                        current_time = time.time() - video_source.playback_start_time + video_start_time
+                    else:
+                        with video_source.audio_position_lock:
+                            current_time = video_source.audio_position + video_start_time
                     
                     # Process audio in chunks with overlap
-                    if current_time >= last_process_time + (self.chunk_size - overlap):
+                    if current_time >= last_process_time + (chunk_size - overlap):
                         # Get audio chunk from current position with specified size
-                        audio_data = video_source.get_audio_chunk(chunk_size=self.chunk_size)
-                        if audio_data is not None:
-                            # Add to transcription engine
-                            self.add_audio_segment(audio_data)
+                        audio_chunk = video_source.get_audio_chunk(chunk_size=chunk_size)
+                        if audio_chunk is not None and len(audio_chunk[0]) > 0:
+                            # Add to transcription engine using the proper method
+                            self.add_audio_segment(audio_chunk)
                             last_process_time = current_time
-                            logger.debug(f"Processed audio chunk at {current_time:.2f}s")
+                            
+                            # Log progress with absolute timestamp
+                            if video_source.warm_up_complete.is_set():
+                                logger.debug(f"Added audio chunk at {current_time:.2f}s to queue")
+                            else:
+                                logger.debug(f"Warm-up: Added chunk at {current_time:.2f}s to queue")
                     
                     # Small delay to prevent busy waiting
                     time.sleep(0.05)
                     
                 except Exception as e:
-                    logger.error(f"Error in audio processing loop: {e}")
-                    time.sleep(0.1)  # Prevent tight loop on errors
+                    logger.error(f"Error in audio processing: {e}", exc_info=True)
+                    time.sleep(0.1)
                     
         except Exception as e:
             logger.error(f"Fatal error in audio processing: {e}", exc_info=True)
         finally:
-            logger.info("Audio processing stopped")
+            logger.info("Audio processing thread stopped")
     
     def __enter__(self):
         self.start_transcription()

@@ -3,6 +3,7 @@ import numpy as np
 import os
 import time
 import threading
+import queue
 from queue import Queue
 import logging
 import sounddevice as sd
@@ -26,8 +27,9 @@ class VideoSource:
         if not os.path.isabs(source):
             self.source = os.path.join(os.path.expanduser("~/.video_cache"), source)
             
-        # Initialize queue for synchronized playback
-        self.frames_queue = Queue(maxsize=30)
+        # Initialize queue for synchronized playback with larger buffer
+        self.frames_queue = Queue(maxsize=120)  # Increased from 30 to 120 frames (about 4 seconds at 30fps)
+        self.last_queue_warning = 0
         
         # Thread management
         self.is_running = False
@@ -49,6 +51,9 @@ class VideoSource:
         # Synchronization objects
         self.audio_position = 0.0  # Current audio position in seconds
         self.audio_position_lock = threading.RLock()
+        self.playback_started = threading.Event()
+        self.warm_up_complete = threading.Event()
+        self.video_start_time = 0.0
         self.start_sync_event = threading.Event()  # For exact start synchronization
         self.playback_start_time = 0.0  # Common reference point for sync
         
@@ -59,7 +64,7 @@ class VideoSource:
                 return
             
             try:
-                # Start video capture directly from source
+                # Start video capture directly from source but don't open window yet
                 logger.info(f"Opening video source: {self.source}")
                 self._cap = cv2.VideoCapture(self.source)
                 
@@ -78,32 +83,25 @@ class VideoSource:
                 else:
                     self._frame_count = 0
                 
-                # Check for existing audio file in cache
-                audio_file = self._get_audio_file_path()
+                # Check for existing audio file in cache but don't start playback yet
+                self.audio_file = self._get_audio_file_path()
                 
                 # Initialize is_running before starting threads
                 self.is_running = True
                 
-                # Clear sync event before starting threads
+                # Clear sync events before starting threads
                 self.start_sync_event.clear()
+                self.warm_up_complete.clear()
                 
-                # Start both threads first, but they'll wait for the sync event
-                logger.info("Starting media threads (waiting for sync)")
-                
-                # Start video thread
+                # Start video thread (will wait for warm-up)
+                logger.info("Starting video thread (waiting for warm-up to complete)")
                 self.video_thread = threading.Thread(target=self._capture_frames)
                 self.video_thread.daemon = True
                 self.video_thread.start()
                 
-                # Start audio playback thread if audio file exists
-                has_audio = False
-                if audio_file:
-                    has_audio = True
-                    self.audio_playing = True
-                    self.audio_thread = threading.Thread(target=self._play_audio, args=(audio_file,))
-                    self.audio_thread.daemon = True
-                    self.audio_thread.start()
-                else:
+                # Don't start audio thread yet - it will be started after warm-up
+                has_audio = bool(self.audio_file)
+                if not has_audio:
                     logger.warning("No audio file available - video timing will be used")
                 
                 # Prebuffer some frames to ensure smooth start
@@ -188,38 +186,45 @@ class VideoSource:
             
     def _capture_frames(self):
         """Capture frames with synchronization to audio."""
-        logger.info("Video thread ready, waiting for sync signal")
+        logger.info("Video thread ready, waiting for warm-up to complete")
+        
+        # Calculate frame time based on FPS
+        frame_time = 1.0 / self._video_fps if self._video_fps > 0 else 0.033  # Default to ~30fps if fps is 0
+        
+        # Wait for warm-up to complete before doing anything
+        while not self.warm_up_complete.is_set() and not self._shutdown_event.is_set():
+            # Just keep the thread alive during warm-up
+            time.sleep(0.1)
+        
+        if self._shutdown_event.is_set():
+            return
+            
+        # Now that warm-up is complete, initialize video playback
+        logger.info(f"Starting video playback at {self.start_time:.2f}s")
+        
+        # Reset video capture to the beginning
+        self._cap.release()
+        self._cap = cv2.VideoCapture(self.source)
+        self._frame_count = int(self.start_time * self._video_fps)
+        self._cap.set(cv2.CAP_PROP_POS_FRAMES, self._frame_count)
+        
+        # Clear any existing frames in the queue
+        while not self.frames_queue.empty():
+            try:
+                self.frames_queue.get_nowait()
+            except queue.Empty:
+                break
         
         # Wait for the sync signal
         self.start_sync_event.wait()
         
-        # Wait until the exact start time
-        sleep_time = max(0, self.playback_start_time - time.time())
-        if sleep_time > 0:
-            time.sleep(sleep_time)
-            
-        logger.info("Starting video playback")
-        
-        frame_time = 1.0 / self._video_fps
+        # Set common start time for sync
+        self.playback_start_time = time.time()
+        logger.info(f"Video playback started at {self.playback_start_time}")
         
         try:
             while self.is_running and not self._shutdown_event.is_set():
-                # Get current audio position (this is our master clock)
-                with self.audio_position_lock:
-                    current_audio_time = self.audio_position
-                
-                # Determine which frame should be displayed at this time
-                target_frame = int(current_audio_time * self._video_fps)
-                
-                # If we're ahead of where we should be, skip frames
-                if self._frame_count < target_frame:
-                    # Skip ahead to catch up with audio
-                    frames_to_skip = target_frame - self._frame_count
-                    if frames_to_skip > 1:
-                        logger.debug(f"Skipping {frames_to_skip} frames to sync with audio")
-                        # Skip frames to catch up
-                        self._cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
-                        self._frame_count = target_frame
+                start_time = time.time()
                 
                 # Read the next frame
                 ret, frame = self._cap.read()
@@ -228,28 +233,32 @@ class VideoSource:
                     break
                 
                 # Calculate timestamp for this frame based on frame number
-                current_pts = self._frame_count * frame_time
+                current_pts = (self._frame_count - int(self.start_time * self._video_fps)) * frame_time
                 self._frame_count += 1
                 
                 # Queue frame with timestamp
-                try:
-                    self.frames_queue.put((frame, current_pts))
-                except:
-                    pass
+                current_time = time.time()
+                qsize = self.frames_queue.qsize()
                 
-                # If no audio, use video timing
-                if not self.audio_playing:
-                    # Calculate when this frame should be displayed
-                    elapsed_time = time.time() - self.playback_start_time
-                    target_time = self.playback_start_time + current_pts
-                    now = time.time()
-                    sleep_time = max(0, target_time - now)
-                    
-                    if sleep_time > 0:
-                        time.sleep(min(sleep_time, 0.1))  # Cap at 100ms to stay responsive
-                else:
-                    # Yield to other threads briefly
-                    time.sleep(0.001)
+                # Only log queue status if it's getting full (over 80%)
+                if qsize > self.frames_queue.maxsize * 0.8:
+                    if current_time - getattr(self, 'last_queue_warning', 0) > 1.0:  # Rate limit warnings
+                        logger.warning(f"Frame queue {qsize}/{self.frames_queue.maxsize} ({(qsize/self.frames_queue.maxsize*100):.1f}% full)")
+                        self.last_queue_warning = current_time
+                
+                # Try to put frame without blocking
+                try:
+                    self.frames_queue.put_nowait((frame, current_pts))
+                    logger.debug(f"Queued frame at {current_pts:.2f}s (qsize: {qsize+1})")
+                except queue.Full:
+                    if current_time - getattr(self, 'last_queue_warning', 0) > 1.0:  # Rate limit warnings
+                        logger.warning(f"Frame queue full ({qsize}), dropping frame at {current_pts:.2f}s")
+                        self.last_queue_warning = current_time
+                
+                # Calculate time to sleep to maintain frame rate
+                process_time = time.time() - start_time
+                sleep_time = max(0, frame_time - process_time)
+                time.sleep(sleep_time)
                 
         except Exception as e:
             logger.error(f"Error in frame capture: {e}")
@@ -353,6 +362,9 @@ class VideoSource:
     def get_audio_chunk(self, chunk_size=3.0):
         """Get the next audio chunk with its timestamp.
         
+        During warm-up, this will process audio chunks without playing them.
+        After warm-up, it will return chunks for actual playback.
+        
         Args:
             chunk_size: Length of audio chunk in seconds (default: 3.0)
             
@@ -364,9 +376,12 @@ class VideoSource:
             return None
             
         try:
-            # Get current audio position
             with self.audio_position_lock:
-                current_time = self.audio_position
+                # Calculate the current time including the start time offset
+                current_time = self.start_time + self.audio_position
+                # If we're in warm-up, increment the position for processing
+                if not self.warm_up_complete.is_set():
+                    self.audio_position += chunk_size
             
             # Extract actual audio data
             audio_file = self._get_audio_file_path()
@@ -374,11 +389,12 @@ class VideoSource:
                 try:
                     with sf.SoundFile(audio_file) as f:
                         sample_rate = f.samplerate
+                        # Calculate the start sample from the beginning of the file
                         start_sample = int(current_time * sample_rate)
                         chunk_samples = int(chunk_size * sample_rate)
                         
-                        # Don't try to read past the end of the file
-                        if start_sample < len(f):
+                        # Don't try to read before the start or past the end of the file
+                        if 0 <= start_sample < len(f):
                             f.seek(start_sample)
                             # Read chunk_size seconds of audio or remaining audio
                             audio_chunk = f.read(
@@ -408,9 +424,11 @@ class VideoSource:
                                 )
                             
                             logger.debug(
-                                f"Extracted {len(audio_chunk)/16000:.2f}s audio chunk "
-                                f"at {current_time:.2f}s (resampled to 16kHz)"
+                                f"Processing audio chunk {len(audio_chunk)/16000:.2f}s "
+                                f"at {current_time:.2f}s (warm-up: {not self.warm_up_complete.is_set()})"
                             )
+                            
+                            # Return the chunk with its absolute timestamp
                             return (audio_chunk, current_time)
                             
                 except Exception as e:
@@ -424,6 +442,18 @@ class VideoSource:
             logger.error(f"Error in get_audio_chunk: {e}", exc_info=True)
             return None
             
+    def get_current_time(self):
+        """Get the current playback time in seconds.
+        
+        Returns:
+            float: Current playback time in seconds, or 0.0 if not available
+        """
+        if not hasattr(self, 'playback_start_time') or not hasattr(self, 'audio_position'):
+            return 0.0
+            
+        # Calculate current time based on when playback started and current audio position
+        return self.audio_position
+        
     def get_video_info(self):
         """Get video dimensions and FPS."""
         if not hasattr(self, '_cap'):
