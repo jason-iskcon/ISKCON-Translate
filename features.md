@@ -141,30 +141,50 @@ This document outlines the step-by-step process to implement an enhanced logging
 
 ## Phase 4: Update Caption Overlay (Final Phase - Handle with Care)
 
-- [ ] **4.1 Add basic logging to caption_overlay.py**
-  - [ ] Import TRACE level from logging_utils
-  - [ ] Add initialization logging (font loading, settings)
-  - [ ] Log caption addition/removal events
-  - [ ] Keep minimal impact on rendering performance
+- [x] **4.1 Add basic logging to caption_overlay.py**
+  - [x] Import TRACE level from logging_utils
+  - [x] Add initialization logging (font loading, settings)
+  - [x] Log caption addition/removal events
+  - [x] Keep minimal impact on rendering performance
+  - [x] Add detailed timestamp adjustment logging
+  - [x] Implement caption deduplication logging
+  - [x] Add queue state monitoring
 
-- [ ] **4.2 Add debug visualization options**
-  - [ ] Add frame counter overlay
-  - [ ] Add timing information overlay
-  - [ ] Make visualization togglable via debug flag
-  - [ ] Add bounding box visualization for text placement
-
-- [ ] **4.3 Add performance monitoring**
-  - [ ] Log rendering time per frame
-  - [ ] Track caption queue size
+- [x] **4.2 Performance monitoring**
+  - [x] Log rendering time per frame (DEBUG level)
+  - [x] Track caption queue size and state
+  - [x] Add frame timing diagnostics
+  - [x] Implement detailed timing logs for caption display
+  - [x] Add trace-level logging for caption lifecycle events
   - [ ] Monitor memory usage for leaks
   - [ ] Add warning for slow frame processing
 
-- [ ] **4.4 Verification: Caption Rendering**
-  - [ ] Verify captions appear correctly
-  - [ ] Check timing synchronization
-  - [ ] Validate debug visualizations
-  - [ ] Test with different caption lengths
-  - [ ] Measure rendering performance impact
+- [ ] **4.3 Verification: Caption Rendering**
+  - [ ] **Test Caption Display**
+    - [ ] Test basic caption rendering
+    - [ ] Verify text wrapping for long captions
+    - [ ] Test special characters and unicode support
+    - [ ] Verify text alignment and positioning
+  - [ ] **Test Timing and Synchronization**
+    - [ ] Test caption timing accuracy
+    - [ ] Verify frame-accurate display
+    - [ ] Test with variable frame rates
+    - [ ] Validate smooth transitions between captions
+  - [ ] **Test Performance**
+    - [ ] Measure rendering time per frame
+    - [ ] Test with high caption volume
+    - [ ] Validate memory usage over time
+    - [ ] Test under different system loads
+  - [ ] **Test Edge Cases**
+    - [ ] Empty captions
+    - [ ] Very short/long captions
+    - [ ] High frequency caption updates
+    - [ ] System time changes during playback
+  - [ ] **Automated Tests**
+    - [ ] Unit tests for caption timing logic
+    - [ ] Integration tests with video source
+    - [ ] Performance benchmarks
+    - [ ] Memory leak detection tests
 
 ## Phase 5: System-wide Testing and Validation
 

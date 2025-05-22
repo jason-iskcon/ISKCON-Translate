@@ -4,9 +4,9 @@ import time
 
 # Import with try-except to handle both direct execution and module import
 try:
-    from logging_utils import get_logger
+    from logging_utils import get_logger, TRACE
 except ImportError:
-    from .logging_utils import get_logger
+    from .logging_utils import get_logger, TRACE
 
 # Get logger instance
 logger = get_logger(__name__)
@@ -52,8 +52,10 @@ class CaptionOverlay:
             start_time: The absolute timestamp where the video starts (in seconds)
         """
         logger.info(f"[TIMING] Setting video start time to {start_time} (current time: {time.time()})")
+        logger.debug(f"[TIMING] Previous video start time: {getattr(self, 'video_start_time', 'not set')}")
         self.video_start_time = start_time
         logger.info(f"[TIMING] Video start time set to {start_time}. Current offset: {time.time() - start_time:.2f}s")
+        logger.trace(f"[TIMING] Video start time details - System time: {time.time()}, Offset: {time.time() - start_time:.6f}s")
         
     # Context manager methods for resource management
     def __enter__(self):
@@ -87,18 +89,24 @@ class CaptionOverlay:
                 original_timestamp = timestamp
                 timestamp = timestamp - self.video_start_time
                 logger.info(f"[CAPTION] Adding absolute timestamp: '{text}' at {original_timestamp:.2f} (relative: {timestamp:.2f}s) for {duration:.1f}s")
+                logger.debug(f"[CAPTION] Timestamp conversion - Absolute: {original_timestamp:.6f}, Video start: {self.video_start_time:.6f}, Relative: {timestamp:.6f}")
             else:
                 logger.info(f"[CAPTION] Adding relative caption: '{text}' at {timestamp:.2f}s for {duration:.1f}s")
             
             # Log current timing context
-            logger.info(f"  - Current system time: {current_time:.2f}")
-            logger.info(f"  - Video start time: {getattr(self, 'video_start_time', 0):.2f}")
-            logger.info(f"  - Current relative time: {current_relative:.2f}s")
+            logger.debug(f"[TIMING] Current system time: {current_time:.6f}")
+            logger.debug(f"[TIMING] Video start time: {getattr(self, 'video_start_time', 0):.6f}")
+            logger.debug(f"[TIMING] Current relative time: {current_relative:.6f}s")
+            logger.trace(f"[TIMING] Full timing context - System: {current_time:.6f}, Video start: {self.video_start_time:.6f}, "
+                       f"Relative: {current_relative:.6f}, Timestamp: {timestamp:.6f}, Duration: {duration:.6f}")
             
             # If the caption is in the past, adjust it to show immediately
             if timestamp < current_relative:
-                logger.info(f"  - Adjusting timestamp from {timestamp:.2f}s to current time {current_relative:.2f}s")
+                time_diff = current_relative - timestamp
+                logger.info(f"[CAPTION] Adjusting timestamp from {timestamp:.2f}s to current time {current_relative:.2f}s (offset by {time_diff:.2f}s)")
+                logger.debug(f"[TIMING] Timestamp adjustment - Original: {timestamp:.6f}, Current: {current_relative:.6f}, Difference: {time_diff:.6f}s")
                 timestamp = current_relative
+                logger.trace(f"[TIMING] Post-adjustment - Timestamp: {timestamp:.6f}, Current relative: {current_relative:.6f}")
             
             # Log final timing
             logger.info(f"  - Will display at: {timestamp:.2f}s (in {max(0, timestamp - current_relative):.2f}s)")
@@ -133,19 +141,35 @@ class CaptionOverlay:
             if self.captions and seamless:
                 last_caption = self.captions[-1]
                 similarity = self._text_similarity(text, last_caption['text'])
+                
+                # Log detailed deduplication info
+                logger.trace(f"[DEDUPE] Checking for duplicates - New text: '{text}'")
+                logger.trace(f"[DEDUPE] Previous caption: '{last_caption['text']}'")
+                logger.trace(f"[DEDUPE] Similarity score: {similarity:.4f}, Threshold: 0.8")
+                
                 if similarity > 0.8:  # 80% similar
-                    logger.debug(f"[DUPLICATE] Skipping similar caption (similarity: {similarity:.2f}): '{text}'")
-                    logger.debug(f"[DUPLICATE] Previous caption: '{last_caption['text']}'")
+                    logger.info(f"[DEDUPE] Skipping similar caption (similarity: {similarity:.2f})")
+                    logger.debug(f"[DEDUPE] New text: '{text}'")
+                    logger.debug(f"[DEDUPE] Previous: '{last_caption['text']}'")
+                    logger.trace(f"[DEDUPE] Timestamp diff: {timestamp - last_caption['start_time']:.6f}s")
                     return None
             
             # Add the new caption
             self.captions.append(caption)
             
-            # Log the addition
+            # Log the addition with appropriate detail level
+            caption_preview = text.replace('\n', '\\n')  # Show newlines in log
             logger.info(
-                f"[CAPTION] Added caption: '{text[:50]}{'...' if len(text) > 50 else ''}'\n"
-                f"          Start: {timestamp:.2f}s | End: {timestamp + duration:.2f}s | "
-                f"Duration: {duration:.2f}s | Absolute: {is_absolute}"
+                f"[CAPTION] Added caption: '{caption_preview[:50]}{'...' if len(caption_preview) > 50 else ''}'"
+            )
+            logger.debug(
+                f"[CAPTION] Timing - Start: {timestamp:.6f}s | "
+                f"End: {timestamp + duration:.6f}s | Duration: {duration:.3f}s | "
+                f"Absolute: {is_absolute}"
+            )
+            logger.trace(
+                f"[CAPTION] Full text: '{caption_preview}'\n"
+                f"[CAPTION] Caption object: {caption}"
             )
             
             # Log timing info if we have previous captions
@@ -250,6 +274,9 @@ class CaptionOverlay:
         Returns:
             Frame with captions drawn
         """
+        # Start timing the rendering operation
+        render_start = time.time()
+        
         # Get frame dimensions
         frame_height, frame_width = frame.shape[:2]
         result_frame = frame.copy()
@@ -279,10 +306,13 @@ class CaptionOverlay:
         
         if should_log:
             logger.info(f"\n[OVERLAY] === Frame {frame_count} ===")
-            logger.info(f"[OVERLAY] Current relative time: {current_relative_time:.2f}s")
-            logger.info(f"[OVERLAY] Video start time: {self.video_start_time:.2f}")
-            logger.info(f"[OVERLAY] System time: {time.time():.6f}")
-            logger.info(f"[OVERLAY] Time since video start: {time.time() - self.video_start_time:.6f}s")
+            logger.debug(f"[TIMING] Current relative time: {current_relative_time:.6f}s")
+            logger.trace(
+                f"[TIMING] Timing details - "
+                f"Video start: {self.video_start_time:.6f}, "
+                f"System time: {time.time():.6f}, "
+                f"Time since start: {time.time() - self.video_start_time:.6f}s"
+            )
         
         with self.lock:
             # First, remove any captions that have already ended (with a small buffer)
@@ -297,11 +327,10 @@ class CaptionOverlay:
             # Find all captions that should be active now (with small buffer for smooth transitions)
             active_captions = []
             
-            # Only log detailed caption info periodically to reduce log spam
+            # Log levels for different frequencies
             should_log_details = frame_count % 30 == 0  # Log details once per second
             
-            if should_log_details:
-                logger.info(f"[OVERLAY] Checking {len(self.captions)} captions against time {current_relative_time:.2f}")
+            logger.trace(f"[OVERLAY] Processing {len(self.captions)} captions at time {current_relative_time:.6f}")
             
             for i, c in enumerate(self.captions):
                 # Calculate timing for this caption
@@ -311,11 +340,12 @@ class CaptionOverlay:
                 # Add small buffer for activation/deactivation to prevent flickering
                 is_active = (c['start_time'] - 0.1) <= current_relative_time <= (c['end_time'] + 0.1)
                 
+                # Log caption timing details at appropriate levels
                 if should_log_details:
-                    logger.info(
+                    logger.debug(
                         f"[OVERLAY] Caption {i}: '{c['text'][:30]}...' | "
-                        f"Active: {is_active} | Start in: {time_until_start:.2f}s | "
-                        f"End in: {time_until_end:.2f}s"
+                        f"Active: {is_active} | Start in: {time_until_start:.3f}s | "
+                        f"End in: {time_until_end:.3f}s"
                     )
                 
                 if is_active:
@@ -323,25 +353,47 @@ class CaptionOverlay:
                     if 'display_count' not in c:
                         c['display_count'] = 0
                     if c['display_count'] == 0:
-                        logger.info(f"[CAPTION] First display: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' at {current_relative_time:.2f}s")
+                        logger.info(
+                            f"[CAPTION] First display: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' "
+                            f"at {current_relative_time:.3f}s (ends at {c['end_time']:.3f}s, duration: {c['end_time']-c['start_time']:.3f}s)"
+                        )
                     c['display_count'] += 1
                     
+                    # Add trace logging for active caption timing
+                    if c['display_count'] == 1:  # Only log first frame to reduce noise
+                        logger.trace(
+                            f"[TIMING] First frame timing - "
+                            f"Caption: '{c['text'][:30]}...' | "
+                            f"Start: {c['start_time']:.6f}s | "
+                            f"Current: {current_relative_time:.6f}s | "
+                            f"End: {c['end_time']:.6f}s | "
+                            f"Time in: {current_relative_time - c['start_time']:.6f}s"
+                        )
+                    
                     active_captions.append(c)
+                    
                     if should_log_details:
-                        logger.info(f"[OVERLAY]   - Active for {time_until_end:.2f}s more")
+                        logger.debug(f"[OVERLAY]   - Active for {time_until_end:.3f}s more")
                 elif should_log_details and time_until_start > 0 and time_until_start < 2.0:
-                    logger.info(f"[OVERLAY]   - Will be active in {time_until_start:.2f}s")
+                    logger.debug(f"[OVERLAY]   - Will be active in {time_until_start:.3f}s")
             
             # If no captions, return the frame as-is
             if not active_captions:
                 if should_log:
-                    logger.info(f"[OVERLAY] No active captions at {current_relative_time:.2f}s")
+                    logger.debug(f"[OVERLAY] No active captions at {current_relative_time:.3f}s")
                     if self.captions:
-                        logger.info("[OVERLAY] Upcoming captions:")
-                        for c in sorted(self.captions, key=lambda x: x['start_time']):
-                            time_until = c['start_time'] - current_relative_time
-                            if time_until > 0:
-                                logger.info(f"  - In {time_until:.2f}s: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}'")
+                        upcoming = [c for c in sorted(self.captions, key=lambda x: x['start_time']) 
+                                  if c['start_time'] > current_relative_time]
+                        if upcoming:
+                            logger.debug("[OVERLAY] Upcoming captions:")
+                            for c in upcoming[:3]:  # Show next 3 captions
+                                time_until = c['start_time'] - current_relative_time
+                                logger.debug(
+                                    f"  - In {time_until:6.3f}s: "
+                                    f"'{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}'"
+                                )
+                            if len(upcoming) > 3:
+                                logger.debug(f"  - ... and {len(upcoming) - 3} more captions")
                 return frame
                 
             # Process all active captions in order of their start time
@@ -353,117 +405,158 @@ class CaptionOverlay:
                     logger.info(f"  {i}. '{cap['text']}' ({cap['start_time']:.2f}-{cap['end_time']:.2f}s)")
             
             # Process each active caption
-            for current_caption in active_captions:
+            for i, current_caption in enumerate(active_captions, 1):
                 try:
-                    # Calculate timing for this caption
+                    # Get caption timing info
                     caption_start = current_caption.get('start_time', 0)
                     caption_end = current_caption.get('end_time', 0)
+                    caption_duration = caption_end - caption_start
                     
                     # Skip if this caption is not ready to be displayed yet (with small buffer)
                     if current_time < caption_start - 0.1:
+                        logger.trace(
+                            f"[RENDER] Skipping caption {i} - Not started yet | "
+                            f"Current: {current_time:.6f}s | Start: {caption_start:.6f}s | "
+                            f"Time until start: {caption_start - current_time:.6f}s"
+                        )
                         continue
                         
                     # Skip if caption has ended (with small buffer)
                     if current_time > caption_end + 0.1:
+                        logger.trace(
+                            f"[RENDER] Skipping caption {i} - Already ended | "
+                            f"Current: {current_time:.6f}s | End: {caption_end:.6f}s | "
+                            f"Time since end: {current_time - caption_end:.6f}s"
+                        )
                         continue
                         
                     # Calculate time in caption and time until end
                     time_in_caption = current_time - caption_start
                     time_until_end = caption_end - current_time
                     
+                    # Log rendering details at appropriate levels
+                    if should_log_details:
+                        logger.debug(
+                            f"[RENDER] Rendering caption {i}/{len(active_captions)} | "
+                            f"{time_in_caption:.3f}s / {caption_duration:.3f}s | "
+                            f"'{current_caption['text'][:50]}{'...' if len(current_caption['text']) > 50 else ''}'"
+                        )
+                    
+                    logger.trace(
+                        f"[RENDER] Caption {i} timing | "
+                        f"Start: {caption_start:.6f}s | "
+                        f"Current: {current_time:.6f}s | "
+                        f"End: {caption_end:.6f}s | "
+                        f"Time in: {time_in_caption:.6f}s | "
+                        f"Remaining: {time_until_end:.6f}s"
+                    )
+                    
                     # Log timing information for debugging
-                    logger.debug(f"[FADE] current_time: {current_time:.3f}, "
-                               f"caption: {current_caption.get('start_time', 0):.3f}-{current_caption.get('end_time', 0):.3f}, "
-                               f"time_in: {time_in_caption:.3f}, time_until_end: {time_until_end:.3f}")
+                    if should_log:
+                        logger.info(
+                            f"[OVERLAY] Processing caption: '{current_caption['text'][:30]}...'\n"
+                            f"          Time in caption: {time_in_caption:.2f}s | "
+                            f"Time remaining: {time_until_end:.2f}s"
+                        )
                     
                     # Calculate fade in/out effects
-                    fade_duration = 0.3  # seconds for fade in/out
-                    if time_in_caption < fade_duration:
-                        # Fade in
-                        fade_factor = time_in_caption / fade_duration
-                    elif time_until_end < fade_duration:
-                        # Fade out
-                        fade_factor = time_until_end / fade_duration
-                    else:
-                        # Fully visible
-                        fade_factor = 1.0
+                    fade_in_duration = min(0.3, (caption_end - caption_start) / 3)  # Up to 0.3s fade in
+                    fade_out_duration = min(0.5, (caption_end - caption_start) / 3)  # Up to 0.5s fade out
                     
-                    # Ensure smooth transitions with minimum visibility
-                    fade_factor = max(0.05, min(1.0, fade_factor))
-                    logger.debug(f"[FADE] Rendering caption - fade_factor: {fade_factor:.3f}")
+                    fade_factor = 1.0
                     
-                    # Skip if fade factor is too low (caption not visible)
-                    if fade_factor <= 0.05:
-                        continue
-                        
-                    # Log caption timing info
-                    logger.info(f"[OVERLAY]   Caption: '{current_caption.get('text', '')[:30]}...'")
-                    logger.info(f"[OVERLAY]   Start: {current_caption.get('start_time', 0):.2f}s | "
-                              f"End: {current_caption.get('end_time', 0):.2f}s | Now: {current_time:.2f}s | "
-                              f"Time in: {time_in_caption:.2f}s | "
-                              f"Remaining: {time_until_end:.1f}s")
+                    # Fade in at start
+                    if time_in_caption < fade_in_duration and fade_in_duration > 0:
+                        fade_factor = time_in_caption / fade_in_duration
+                    # Fade out at end
+                    elif time_until_end < fade_out_duration and fade_out_duration > 0:
+                        fade_factor = time_until_end / fade_out_duration
                     
-                    # Render the caption on the frame
-                    caption_text = current_caption.get('text', '').strip()
-                    if not caption_text:
-                        continue
-                        
-                    # Split into lines and remove empty lines
-                    lines = [line.strip() for line in caption_text.split('\n') if line.strip()]
-                    if not lines:
-                        continue
-                        
-                    # Calculate text size and position
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 1.0
-                    font_thickness = 2
-                    padding = 10
+                    # Ensure fade factor is within valid range
+                    fade_factor = max(0.1, min(1.0, fade_factor))
                     
-                    # Calculate text block size
+                    if should_log:
+                        logger.info(f"[OVERLAY] Fade factor: {fade_factor:.2f}")
+                    
+                    # Split text into lines
+                    lines = current_caption['text'].split('\n')
+                    
+                    # Calculate total text block height
+                    total_text_height = 0
                     line_heights = []
-                    line_widths = []
+                    
                     for line in lines:
-                        (w, h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
+                        if not line.strip():
+                            continue
+                        (w, h), _ = cv2.getTextSize(
+                            line, self.font, self.font_scale, self.font_thickness
+                        )
                         line_heights.append(h)
-                        line_widths.append(w)
+                        total_text_height += h + 5  # Add some spacing between lines
                     
-                    total_text_height = sum(line_heights) + (len(lines) - 1) * (font_thickness + 2)
-                    max_text_width = max(line_widths) if line_widths else 0
+                    if not line_heights:
+                        continue  # Skip if no valid lines
                     
-                    # Calculate text block position (centered at bottom)
-                    text_block_x = (frame_width - max_text_width) // 2
-                    text_block_y = frame_height - self.y_offset - total_text_height
+                    # Add padding
+                    total_text_height += self.padding * 2
                     
-                    # Draw background rectangle
-                    bg_padding = padding
-                    bg_x1 = max(0, text_block_x - bg_padding)
-                    bg_y1 = max(0, text_block_y - bg_padding)
-                    bg_x2 = min(frame_width, text_block_x + max_text_width + bg_padding)
-                    bg_y2 = min(frame_height, text_block_y + total_text_height + bg_padding)
+                    # Calculate text block position
+                    bg_x1 = (frame_width - frame_width // 2) // 2  # Center in the middle half of the frame
+                    bg_x2 = frame_width - bg_x1
+                    bg_y1 = frame_height - total_text_height - self.y_offset
+                    bg_y2 = frame_height - self.y_offset
                     
-                    # Create semi-transparent background
+                    # Ensure background is within frame bounds
+                    bg_y1 = max(0, bg_y1)
+                    bg_y2 = min(frame_height, bg_y2)
+                    
+                    # Create overlay for this caption
                     overlay = result_frame.copy()
+                    
+                    # Draw background rectangle with fade effect
+                    bg_color = list(self.bg_color)
+                    if len(bg_color) == 3:  # If no alpha channel, add one
+                        bg_color = bg_color + [128]  # Semi-transparent by default
+                    
+                    # Apply fade factor to alpha channel
+                    bg_color[3] = int(bg_color[3] * fade_factor)
+                    
+                    # Convert to BGRA for OpenCV
+                    bgra_bg_color = (bg_color[2], bg_color[1], bg_color[0], bg_color[3])
+                    
+                    # Create a transparent overlay
+                    overlay = np.zeros_like(overlay, dtype=np.uint8)
+                    
+                    # Draw the background rectangle
                     cv2.rectangle(
-                        overlay,
-                        (bg_x1, bg_y1),
-                        (bg_x2, bg_y2),
-                        self.bg_color,
+                        overlay, 
+                        (bg_x1, bg_y1), 
+                        (bg_x2, bg_y2), 
+                        bgra_bg_color, 
                         -1
                     )
                     
-                    # Apply fade effect to background
-                    alpha = 0.7 * fade_factor
+                    # Add the overlay to the result with transparency
+                    alpha = bg_color[3] / 255.0
                     cv2.addWeighted(overlay, alpha, result_frame, 1 - alpha, 0, result_frame)
                     
-                    # Draw each line of text with shadow
-                    y = text_block_y
-                    for line in lines:
+                    # Draw text
+                    y = bg_y1 + self.padding
+                    
+                    # Track the lines we're going to display
+                    display_lines = []
+                    
+                    for line, h in zip(lines, line_heights):
                         if not line.strip():
-                            y += int(h * 1.5)  # Add extra space for empty lines
+                            y += h + 5  # Still account for empty lines in spacing
                             continue
                             
-                        # Get text size for this line
-                        (w, h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
+                        display_lines.append(line)
+                        
+                        # Get text size for centering
+                        (w, _), _ = cv2.getTextSize(
+                            line, self.font, self.font_scale, self.font_thickness
+                        )
                         x = (frame_width - w) // 2  # Center each line
                         
                         # Draw text shadow (slightly offset)
@@ -473,14 +566,14 @@ class CaptionOverlay:
                             result_frame, 
                             line, 
                             (x + shadow_offset, y + shadow_offset),
-                            font, 
-                            font_scale, 
+                            self.font, 
+                            self.font_scale, 
                             shadow_color,
-                            font_thickness + 1, 
+                            self.font_thickness + 1, 
                             cv2.LINE_AA
                         )
                         
-                        # Draw main text with fade effect
+                        # Draw main text with fade effect applied
                         text_color = list(self.font_color)
                         if len(text_color) == 3:  # If no alpha channel, add one
                             text_color = text_color + [255]  # Fully opaque by default
@@ -496,21 +589,19 @@ class CaptionOverlay:
                             result_frame, 
                             line, 
                             (x, y),
-                            font, 
-                            font_scale, 
+                            self.font, 
+                            self.font_scale, 
                             bgr_color,
-                            font_thickness, 
+                            self.font_thickness, 
                             cv2.LINE_AA
                         )
                         
                         # Move to next line position with some spacing
                         y += h + 5
-                    
                 except Exception as e:
-                    logger.error(f"Error processing caption: {e}", exc_info=True)
-                    # Skip to next caption on error
+                    logger.error(f"Error rendering caption: {str(e)}", exc_info=True)
                     continue
-                
+            
             # Log all captions in queue for debugging
             if self.captions and should_log:
                 logger.info("[OVERLAY] Caption queue (by start time):")
@@ -571,49 +662,17 @@ class CaptionOverlay:
 
             # Start with a clean copy of the frame
             result_frame = frame.copy()
-            frame_height, frame_width = frame.shape[:2]
             
-            # Calculate timing for fade effects
-            time_in_caption = current_relative_time - current_caption['start_time']
-            time_until_end = current_caption['end_time'] - current_relative_time
-            fade_duration = 0.3  # seconds for fade in/out
+            # Start timing the rendering
+            render_start = time.time()
             
-            # Log timing information for debugging
-            logger.debug(f"[FADE] current_time: {current_relative_time:.3f}, "
-                       f"caption: {current_caption['start_time']:.3f}-{current_caption['end_time']:.3f}, "
-                       f"time_in: {time_in_caption:.3f}, time_until_end: {time_until_end:.3f}")
-            
-            # Check if we're outside the caption's time window (with 0.1s buffer)
-            if time_in_caption < -0.1 or time_until_end < -0.1:
-                # Skip rendering if we're clearly out of the window
-                logger.debug(f"[FADE] Skipping caption: time_in={time_in_caption:.3f}, time_until_end={time_until_end:.3f}")
+            # Get frame dimensions
+            try:
+                frame_height, frame_width = frame.shape[:2]
+            except Exception as e:
+                logger.error(f"Error getting frame dimensions: {str(e)}")
                 return frame
                 
-            # Calculate fade in/out effects
-            if time_in_caption < fade_duration:
-                # Fade in
-                fade_factor = time_in_caption / fade_duration
-            elif time_until_end < fade_duration:
-                # Fade out
-                fade_factor = time_until_end / fade_duration
-            else:
-                # Fully visible
-                fade_factor = 1.0
-            
-            # Log timing information for debugging
-            logger.debug(f"[FADE] current_time: {current_relative_time:.3f}, "
-                       f"caption: {current_caption['start_time']:.3f}-{current_caption['end_time']:.3f}, "
-                       f"time_in: {time_in_caption:.3f}, time_until_end: {time_until_end:.3f}")
-            
-            # Skip rendering if we're clearly out of the window (with 0.1s buffer)
-            if time_until_end < -0.1:
-                logger.debug(f"[FADE] Skipping caption (ended): time_in={time_in_caption:.3f}, time_until_end={time_until_end:.3f}")
-                return frame
-            
-            # Ensure smooth transitions with minimum visibility
-            fade_factor = max(0.05, min(1.0, fade_factor))
-            logger.debug(f"[FADE] Rendering caption - fade_factor: {fade_factor:.3f}")
-            
             # Process each active caption
             for current_caption in active_captions:
                 # Split the current caption text into lines and clean them up
@@ -744,6 +803,13 @@ class CaptionOverlay:
                     y += h + 5
         
         logger.debug(f"Rendered captions at {current_time:.2f}s: {display_lines}")
+        
+        # Log rendering time in debug mode
+        render_time = (time.time() - render_start) * 1000  # Convert to milliseconds
+        if render_time > 16:  # Log warning if rendering takes more than 16ms (~60fps)
+            logger.warning(f"Slow frame rendering: {render_time:.2f}ms")
+        else:
+            logger.debug(f"Frame rendered in {render_time:.2f}ms")
             
         return result_frame
         
