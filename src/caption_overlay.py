@@ -88,40 +88,41 @@ class CaptionOverlay:
             if is_absolute:
                 original_timestamp = timestamp
                 timestamp = timestamp - self.video_start_time
-                logger.info(f"[CAPTION] Adding absolute timestamp: '{text}' at {original_timestamp:.2f} (relative: {timestamp:.2f}s) for {duration:.1f}s")
-                logger.debug(f"[CAPTION] Timestamp conversion - Absolute: {original_timestamp:.6f}, Video start: {self.video_start_time:.6f}, Relative: {timestamp:.6f}")
+                logger.debug(f"[CAPTION] Adding absolute timestamp at {original_timestamp:.2f}s (relative: {timestamp:.2f}s) for {duration:.1f}s")
+                logger.trace(f"[TIMING] Absolute: {original_timestamp:.6f}, Video start: {self.video_start_time:.6f}, Relative: {timestamp:.6f}")
             else:
-                logger.info(f"[CAPTION] Adding relative caption: '{text}' at {timestamp:.2f}s for {duration:.1f}s")
+                logger.debug(f"[CAPTION] Adding relative caption at {timestamp:.2f}s for {duration:.1f}s")
             
-            # Log current timing context
-            logger.debug(f"[TIMING] Current system time: {current_time:.6f}")
-            logger.debug(f"[TIMING] Video start time: {getattr(self, 'video_start_time', 0):.6f}")
-            logger.debug(f"[TIMING] Current relative time: {current_relative:.6f}s")
-            logger.trace(f"[TIMING] Full timing context - System: {current_time:.6f}, Video start: {self.video_start_time:.6f}, "
-                       f"Relative: {current_relative:.6f}, Timestamp: {timestamp:.6f}, Duration: {duration:.6f}")
+            # Move detailed timing to TRACE level
+            logger.trace(f"[TIMING] System time: {current_time:.6f}")
+            logger.trace(f"[TIMING] Video start: {getattr(self, 'video_start_time', 0):.6f}")
+            logger.trace(f"[TIMING] Relative time: {current_relative:.6f}s")
             
             # If the caption is in the past, adjust it to show immediately
             if timestamp < current_relative:
                 time_diff = current_relative - timestamp
-                logger.info(f"[CAPTION] Adjusting timestamp from {timestamp:.2f}s to current time {current_relative:.2f}s (offset by {time_diff:.2f}s)")
-                logger.debug(f"[TIMING] Timestamp adjustment - Original: {timestamp:.6f}, Current: {current_relative:.6f}, Difference: {time_diff:.6f}s")
+                logger.debug(f"[CAPTION] Adjusting timestamp by {time_diff:.2f}s")
+                logger.trace(
+                    f"[TIMING] Adjustment details | "
+                    f"Original: {timestamp:.6f}s | "
+                    f"Current: {current_relative:.6f}s | "
+                    f"Difference: {time_diff:.6f}s"
+                )
                 timestamp = current_relative
-                logger.trace(f"[TIMING] Post-adjustment - Timestamp: {timestamp:.6f}, Current relative: {current_relative:.6f}")
             
-            # Log final timing
-            logger.info(f"  - Will display at: {timestamp:.2f}s (in {max(0, timestamp - current_relative):.2f}s)")
-            logger.info(f"  - Will end at: {(timestamp + duration):.2f}s")
-                
-            logger.info(f"[TIMING] Current relative time: {current_relative:.2f}s, "
-                      f"Adding caption at: {timestamp:.2f}s, "
-                      f"Duration: {duration:.1f}s")
+            # Move detailed timing to DEBUG level
+            logger.debug(
+                f"[CAPTION] Scheduling | "
+                f"Starts in: {max(0, timestamp - current_relative):.2f}s | "
+                f"Duration: {duration:.1f}s"
+            )
             
             # Skip empty captions
             if not text.strip():
                 logger.debug("Skipping empty caption")
                 return None
                 
-            logger.debug(f"Adding caption: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.2f}s for {duration:.1f}s")
+            logger.trace(f"Adding caption: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.6f}s for {duration:.3f}s")
                 
             # Clean up the text (remove duplicate lines, extra spaces)
             text = '\n'.join([line.strip() for line in text.split('\n') if line.strip()])
@@ -142,56 +143,59 @@ class CaptionOverlay:
                 last_caption = self.captions[-1]
                 similarity = self._text_similarity(text, last_caption['text'])
                 
-                # Log detailed deduplication info
-                logger.trace(f"[DEDUPE] Checking for duplicates - New text: '{text}'")
-                logger.trace(f"[DEDUPE] Previous caption: '{last_caption['text']}'")
-                logger.trace(f"[DEDUPE] Similarity score: {similarity:.4f}, Threshold: 0.8")
-                
+                # Log deduplication at appropriate levels
                 if similarity > 0.8:  # 80% similar
-                    logger.info(f"[DEDUPE] Skipping similar caption (similarity: {similarity:.2f})")
-                    logger.debug(f"[DEDUPE] New text: '{text}'")
-                    logger.debug(f"[DEDUPE] Previous: '{last_caption['text']}'")
+                    logger.debug(f"[DEDUPE] Skipping similar caption (score: {similarity:.2f})")
+                    logger.trace(
+                        f"[DEDUPE] Details | "
+                        f"New: '{text[:50]}{'...' if len(text) > 50 else ''}' | "
+                        f"Prev: '{last_caption['text'][:50]}{'...' if len(last_caption['text']) > 50 else ''}'"
+                    )
                     logger.trace(f"[DEDUPE] Timestamp diff: {timestamp - last_caption['start_time']:.6f}s")
                     return None
             
             # Add the new caption
             self.captions.append(caption)
             
-            # Log the addition with appropriate detail level
-            caption_preview = text.replace('\n', '\\n')  # Show newlines in log
-            logger.info(
-                f"[CAPTION] Added caption: '{caption_preview[:50]}{'...' if len(caption_preview) > 50 else ''}'"
-            )
+            # Log caption addition at appropriate levels
+            caption_preview = text.replace('\n', '\\n')
             logger.debug(
-                f"[CAPTION] Timing - Start: {timestamp:.6f}s | "
-                f"End: {timestamp + duration:.6f}s | Duration: {duration:.3f}s | "
-                f"Absolute: {is_absolute}"
+                f"[CAPTION] Added | "
+                f"Text: '{caption_preview[:50]}{'...' if len(caption_preview) > 50 else ''}' | "
+                f"Start: {timestamp:.2f}s | "
+                f"Duration: {duration:.1f}s"
             )
             logger.trace(
-                f"[CAPTION] Full text: '{caption_preview}'\n"
-                f"[CAPTION] Caption object: {caption}"
+                f"[CAPTION] Full details | "
+                f"Start: {timestamp:.6f}s | "
+                f"End: {timestamp + duration:.6f}s | "
+                f"Absolute: {is_absolute} | "
+                f"Text: '{caption_preview}'"
             )
             
             # Log timing info if we have previous captions
             if len(self.captions) > 1:
                 prev_caption = self.captions[-2]
                 time_since_prev = timestamp - prev_caption['start_time']
-                logger.debug(
-                    f"[TIMING] Time since previous caption: {time_since_prev:.2f}s | "
-                    f"Prev: {prev_caption['start_time']:.2f}s | Current: {timestamp:.2f}s"
+                logger.trace(
+                    f"[TIMING] Caption interval | "
+                    f"Since prev: {time_since_prev:.3f}s | "
+                    f"Prev: {prev_caption['start_time']:.3f}s | "
+                    f"Current: {timestamp:.3f}s"
                 )
             
             # Sort captions by start time to ensure proper rendering order
             self.captions.sort(key=lambda x: x['start_time'])
             
-            # Log current caption queue state
-            logger.info(f"[CAPTION] Queue now has {len(self.captions)} captions")
-            if self.captions:
-                logger.debug("[CAPTION] Current caption queue:")
-                for i, c in enumerate(self.captions):
-                    logger.debug(
-                        f"  {i}. '{c['text'][:30]}{'...' if len(c['text']) > 30 else ''}' | "
-                        f"Start: {c['start_time']:.2f}s | End: {c['end_time']:.2f}s"
+            # Log queue state at appropriate levels
+            logger.debug(f"[CAPTION] Queue size: {len(self.captions)}")
+            if self.captions and logger.isEnabledFor(TRACE):
+                logger.trace("[CAPTION] Queue contents:")
+                for i, c in enumerate(self.captions[-5:]):  # Only show last 5 to avoid log spam
+                    logger.trace(
+                        f"  {i+1}. '{c['text'][:30]}{'...' if len(c['text']) > 30 else ''}' | "
+                        f"Start: {c['start_time']:.3f}s | "
+                        f"End: {c['end_time']:.3f}s"
                     )
             
             return caption
@@ -300,17 +304,20 @@ class CaptionOverlay:
                     status = "ACTIVE " if c['start_time'] <= current_relative_time <= c['end_time'] else "PENDING"
                     logger.info(f"  {i+1}. [{status}] In {time_until:6.2f}s: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}'")
     
-        # Log caption state for debugging
+        # Log caption state for debugging - less frequent for production
         log_frequency = 15  # Log at ~2fps for debugging (every 15 frames at 30fps)
         should_log = frame_count % log_frequency == 0
         
         if should_log:
-            logger.info(f"\n[OVERLAY] === Frame {frame_count} ===")
-            logger.debug(f"[TIMING] Current relative time: {current_relative_time:.6f}s")
+            # Keep basic frame info at DEBUG level
+            logger.debug(f"[OVERLAY] Processing frame {frame_count}")
+            
+            # Move detailed timing to TRACE level
             logger.trace(
-                f"[TIMING] Timing details - "
-                f"Video start: {self.video_start_time:.6f}, "
-                f"System time: {time.time():.6f}, "
+                f"[TIMING] Frame {frame_count} details - "
+                f"Relative time: {current_relative_time:.6f}s | "
+                f"Video start: {self.video_start_time:.6f} | "
+                f"System time: {time.time():.6f} | "
                 f"Time since start: {time.time() - self.video_start_time:.6f}s"
             )
         
@@ -320,9 +327,13 @@ class CaptionOverlay:
             self.captions = [c for c in self.captions if c['end_time'] > current_time - 1.0]  # Keep captions that ended <1s ago
             after_prune = len(self.captions)
             
-            if should_log and before_prune != after_prune:
-                logger.info(f"[OVERLAY] Pruned {before_prune - after_prune} old captions")
-                logger.debug(f"[OVERLAY] Current time: {current_time:.2f}s, Kept captions with end_time > {current_time - 1.0:.2f}s")
+            if before_prune != after_prune:
+                # Move pruning details to DEBUG level
+                logger.debug(
+                    f"[OVERLAY] Pruned {before_prune - after_prune} old captions | "
+                    f"Current time: {current_time:.2f}s | "
+                    f"Kept captions with end_time > {current_time - 1.0:.2f}s"
+                )
             
             # Find all captions that should be active now (with small buffer for smooth transitions)
             active_captions = []
@@ -353,9 +364,11 @@ class CaptionOverlay:
                     if 'display_count' not in c:
                         c['display_count'] = 0
                     if c['display_count'] == 0:
-                        logger.info(
-                            f"[CAPTION] First display: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' "
-                            f"at {current_relative_time:.3f}s (ends at {c['end_time']:.3f}s, duration: {c['end_time']-c['start_time']:.3f}s)"
+                        # Move first display to DEBUG level with less verbose format
+                        logger.debug(
+                            f"[CAPTION] Displaying: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' | "
+                            f"At: {current_relative_time:.2f}s | "
+                            f"Duration: {c['end_time']-c['start_time']:.1f}s"
                         )
                     c['display_count'] += 1
                     
@@ -380,20 +393,21 @@ class CaptionOverlay:
             # If no captions, return the frame as-is
             if not active_captions:
                 if should_log:
-                    logger.debug(f"[OVERLAY] No active captions at {current_relative_time:.3f}s")
+                    # Move queue status to TRACE level
+                    logger.trace(f"[OVERLAY] No active captions at {current_relative_time:.3f}s")
                     if self.captions:
                         upcoming = [c for c in sorted(self.captions, key=lambda x: x['start_time']) 
                                   if c['start_time'] > current_relative_time]
                         if upcoming:
-                            logger.debug("[OVERLAY] Upcoming captions:")
+                            logger.trace("[OVERLAY] Upcoming captions:")
                             for c in upcoming[:3]:  # Show next 3 captions
                                 time_until = c['start_time'] - current_relative_time
-                                logger.debug(
+                                logger.trace(
                                     f"  - In {time_until:6.3f}s: "
                                     f"'{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}'"
                                 )
                             if len(upcoming) > 3:
-                                logger.debug(f"  - ... and {len(upcoming) - 3} more captions")
+                                logger.trace(f"  - ... and {len(upcoming) - 3} more captions")
                 return frame
                 
             # Process all active captions in order of their start time
