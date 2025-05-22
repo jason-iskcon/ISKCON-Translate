@@ -26,6 +26,11 @@ class CaptionOverlay:
         """
         import threading
         
+        logger.info("Initializing CaptionOverlay")
+        logger.debug(f"Font scale: {font_scale}, Thickness: {font_thickness}")
+        logger.debug(f"Text color: {font_color}, BG color: {bg_color}")
+        logger.debug(f"Padding: {padding}px, Y-Offset: {y_offset}px")
+        
         self.captions = []  # List of dicts with text, start_time, end_time, and is_absolute flag
         self.video_start_time = 0  # Track when the video started
         self.lock = threading.Lock()  # For thread-safe access to captions list
@@ -36,6 +41,9 @@ class CaptionOverlay:
         self.bg_color = bg_color
         self.padding = padding
         self.y_offset = y_offset
+        logger.info("CaptionOverlay initialized")
+        
+        logger.debug("CaptionOverlay initialization complete")
         
     def set_video_start_time(self, start_time):
         """Set the video's start time to handle offset captions.
