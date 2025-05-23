@@ -3,12 +3,15 @@ import numpy as np
 import time
 import re
 import logging
+import threading
 
 # Import with try-except to handle both direct execution and module import
 try:
     from logging_utils import get_logger, TRACE
+    from text_utils import text_similarity
 except ImportError:
     from .logging_utils import get_logger, TRACE
+    from .text_utils import text_similarity
 
 # Get logger instance
 logger = get_logger(__name__)
@@ -181,7 +184,7 @@ class CaptionOverlay:
             # Check for duplicate/similar captions
             if self.captions and seamless:
                 last_caption = self.captions[-1]
-                similarity = self._text_similarity(text, last_caption['text'])
+                similarity = text_similarity(text, last_caption['text'])
                 
                 # Log deduplication at appropriate levels
                 if similarity > 0.8:  # 80% similar
@@ -240,163 +243,7 @@ class CaptionOverlay:
             
             return caption
 
-    def _text_similarity(self, text1, text2):
-        """Calculate a text similarity score between two strings.
-        
-        Args:
-            text1 (str): First text to compare
-            text2 (str): Second text to compare
-            
-        Returns:
-            float: Similarity score between 0.0 (completely different) and 1.0 (identical)
-        """
-        if not text1 or not text2:
-            return 0.0
-            
-        # If either string is empty after stripping, return 0.0
-        text1 = text1.strip()
-        text2 = text2.strip()
-        if not text1 or not text2:
-            return 0.0
-            
-        # If strings are exactly the same, return 1.0 immediately
-        if text1 == text2:
-            return 1.0
-            
-        # More aggressive normalization for comparison
-        def normalize_text(t):
-            # Convert to lowercase
-            t = t.lower()
-            # Remove all punctuation except apostrophes
-            t = re.sub(r'[^\w\s\']', ' ', t)
-            # Normalize whitespace and apostrophes
-            t = re.sub(r'\s+', ' ', t).strip()
-            t = re.sub(r'\'\s+', '\'', t)  # Fix spaces after apostrophes
-            t = re.sub(r'\s+\'', '\'', t)  # Fix spaces before apostrophes
-            return t
-            
-        norm1 = normalize_text(text1)
-        norm2 = normalize_text(text2)
-        
-        # If normalized strings are identical, return 1.0
-        if norm1 == norm2:
-            return 1.0
-            
-        # If one normalized string is a substring of the other, return high similarity
-        if norm1 in norm2 or norm2 in norm1:
-            shorter, longer = (norm1, norm2) if len(norm1) < len(norm2) else (norm2, norm1)
-            similarity = len(shorter) / len(longer)
-            # Only consider it a match if the shorter string is at least 60% of the longer one
-            return similarity if similarity >= 0.6 else 0.0
-            
-        # Split into words for word-based comparison
-        words1 = [w for w in norm1.split() if w.strip()]
-        words2 = [w for w in norm2.split() if w.strip()]
-        
-        # If one of the texts is a single word that's a prefix/suffix of any word in the other
-        if len(words1) == 1 or len(words2) == 1:
-            single_word = words1[0] if len(words1) == 1 else words2[0]
-            other_words = words2 if len(words1) == 1 else words1
-            
-            # Check if the single word is a prefix/suffix of any word in the other text
-            for word in other_words:
-                if single_word in word or word in single_word:
-                    return min(0.9, len(min(single_word, word, key=len)) / len(max(single_word, word, key=len)))
-        
-        # Calculate Jaccard similarity between word sets (case insensitive)
-        set1 = set(words1)
-        set2 = set(words2)
-        
-        if not set1 and not set2:
-            return 1.0
-            
-        intersection = len(set1 & set2)
-        union = len(set1 | set2)
-        
-        if union == 0:
-            return 0.0
-            
-        jaccard_sim = intersection / union
-        
-        # If Jaccard similarity is very high, return early
-        if jaccard_sim >= 0.8:
-            return jaccard_sim
-            
-        # Calculate character-based similarity using Levenshtein distance
-        def levenshtein_ratio(s1, s2):
-            """Calculate the Levenshtein distance ratio between two strings."""
-            if not s1 or not s2:
-                return 0.0
-                
-            rows = len(s1) + 1
-            cols = len(s2) + 1
-            
-            # Create a matrix of zeros
-            distance = [[0 for _ in range(cols)] for _ in range(rows)]
-            
-            # Initialize the first row and column
-            for i in range(1, rows):
-                distance[i][0] = i
-            for j in range(1, cols):
-                distance[0][j] = j
-                
-            # Calculate distances
-            for i in range(1, rows):
-                for j in range(1, cols):
-                    if s1[i-1] == s2[j-1]:
-                        cost = 0
-                    else:
-                        cost = 1
-                    distance[i][j] = min(
-                        distance[i-1][j] + 1,      # Deletion
-                        distance[i][j-1] + 1,      # Insertion
-                        distance[i-1][j-1] + cost   # Substitution
-                    )
-            
-            # Calculate ratio
-            max_len = max(len(s1), len(s2))
-            if max_len == 0:
-                return 1.0
-            return 1 - (distance[rows-1][cols-1] / max_len)
-            
-        # Calculate character-level similarity using Levenshtein
-        char_sim = levenshtein_ratio(norm1, norm2)
-        
-        # If character similarity is very high, return early
-        if char_sim >= 0.9:
-            return char_sim
-            
-        # Calculate word order similarity
-        def word_order_similarity(w1, w2):
-            common = set(w1) & set(w2)
-            if not common:
-                return 0.0
-                
-            # Get positions of common words in each text
-            pos1 = [i for i, w in enumerate(w1) if w in common]
-            pos2 = [i for i, w in enumerate(w2) if w in common]
-            
-            # If word order is the same, return higher similarity
-            if pos1 == pos2:
-                return 1.0
-                
-            # Otherwise, calculate how far out of order they are
-            pos_diff = sum(abs(p1 - p2) for p1, p2 in zip(pos1, pos2)) / len(common)
-            return 1.0 / (1.0 + pos_diff)
-            
-        word_order_sim = word_order_similarity(words1, words2) if words1 and words2 else 0.0
-        
-        # Calculate final similarity as weighted average
-        similarity = (
-            0.5 * jaccard_sim +    # Word set similarity (most important)
-            0.3 * char_sim +      # Character-level similarity
-            0.2 * word_order_sim   # Word order similarity (least important)
-        )
-        
-        # Apply a threshold - only consider it a match if similarity is high enough
-        # Lower threshold to 0.6 to catch more similar captions
-        return similarity if similarity >= 0.6 else 0.0
-        
+
     def prune_captions(self, current_time, buffer=1.0):
         """
         Remove captions whose end_time is more than `buffer` seconds before current_time.
