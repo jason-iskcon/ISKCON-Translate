@@ -60,13 +60,22 @@ def parse_arguments():
     
     return parser.parse_args()
 
+def ensure_logs_dir():
+    """Ensure the logs directory exists."""
+    logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir, exist_ok=True)
+    return logs_dir
+
 def main(video_file=None):
     """Main function for synchronized video captioning."""
     # Parse command line arguments
     args = parse_arguments()
     
-    # Set up logging with specified level
-    setup_logging(args.log_level)
+    # Set up logging with specified level and log file
+    logs_dir = ensure_logs_dir()
+    log_file = os.path.join(logs_dir, 'iskcon_translate.log')
+    setup_logging(level=args.log_level, log_file=log_file)
     
     # Use provided source file (from either positional or --source) or fallback
     video_file = args.source or args.source_arg or video_file

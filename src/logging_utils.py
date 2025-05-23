@@ -11,6 +11,7 @@ import logging
 import os
 import sys
 from typing import Optional, Union
+from logging.handlers import RotatingFileHandler
 
 # Define custom log levels
 TRACE = logging.DEBUG - 5
@@ -96,9 +97,19 @@ def setup_logging(level: Union[str, int] = logging.INFO, log_file: Optional[str]
         if log_dir and not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
             
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        # Set up rotating file handler (10MB per file, keep 5 backup files)
+        max_bytes = 10 * 1024 * 1024  # 10MB
+        backup_count = 5
+        file_handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_bytes, 
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
+        logger = logging.getLogger(__name__)
+        logger.info(f"Logging to rotating file: {os.path.abspath(log_file)} (max {max_bytes/1024/1024}MB, {backup_count} backups)")
     
     # Log the logging level and output location
     logger = logging.getLogger(__name__)

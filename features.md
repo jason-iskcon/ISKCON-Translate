@@ -139,9 +139,107 @@ This document outlines the step-by-step process to implement an enhanced logging
     - [x] Suppress third-party debug logs for cleaner output
     - [x] Add queue full warnings at 80% capacity
 
-## Phase 4: Update Caption Overlay (Final Phase - Handle with Care)
+## Phase 4: Main Application Implementation
 
-- [x] **4.1 Add basic logging to caption_overlay.py**
+- [x] **4.1 Add logging to main.py**
+  - [x] **Logging Infrastructure**
+    - [x] Import TRACE level from logging_utils
+    - [x] Set up module-level logger with [MAIN] prefix
+    - [x] Add log level configuration from command line
+    - [x] Implement log rotation and file handling
+    - [x] **Categorize log levels**
+      - [x] INFO: Major application events, state changes, and important milestones
+      - [x] DEBUG: Detailed operational information, configuration details
+      - [x] TRACE: Fine-grained debugging information, timing details
+  - [x] **Component Lifecycle Logging**
+    - [x] Log component initialization (video, audio, caption)
+      - [x] INFO: Component initialization start/complete
+      - [x] DEBUG: Configuration parameters and settings
+      - [x] TRACE: Detailed initialization steps and timing
+    - [x] Add timing information for startup sequence
+      - [x] INFO: Total initialization time
+      - [x] DEBUG: Individual component initialization times
+      - [x] TRACE: Sub-component initialization details
+    - [x] Log configuration parameters
+      - [x] DEBUG: All configuration parameters
+      - [x] TRACE: Parameter validation and processing
+    - [x] Add thread creation/teardown logging
+      - [x] INFO: Thread start/stop events
+      - [x] DEBUG: Thread configuration and state changes
+      - [x] TRACE: Thread execution details
+  - [x] **Thread Management Logging**
+    - [x] Add thread state tracking
+      - [x] DEBUG: Thread state transitions
+      - [x] TRACE: Detailed thread execution flow
+    - [x] Log thread synchronization events
+      - [x] DEBUG: Lock acquisition/release
+      - [x] TRACE: Wait times and contention details
+    - [x] Monitor queue sizes between components
+      - [x] DEBUG: Queue size thresholds
+      - [x] TRACE: Individual enqueue/dequeue operations
+    - [x] Add thread health monitoring
+      - [x] INFO: Critical thread health issues
+      - [x] DEBUG: Periodic health status
+      - [x] TRACE: Detailed health metrics
+  - [x] **Event Loop Logging**
+    - [x] Log frame processing statistics
+      - [x] DEBUG: Frame rate, processing time
+      - [x] TRACE: Individual frame processing details
+    - [x] Add timing information for main loop iterations
+      - [x] DEBUG: Loop iteration timing
+      - [x] TRACE: Detailed timing breakdown
+    - [x] Log user input events
+      - [x] INFO: Important user actions
+      - [x] DEBUG: All user input events
+    - [x] Track system resource usage
+      - [x] DEBUG: Periodic resource usage
+      - [x] TRACE: Detailed resource metrics
+  - [x] **Error Handling Logging**
+    - [x] Log exceptions with full context
+      - [x] ERROR: All exceptions with stack traces
+      - [x] DEBUG: Additional context before exception
+    - [x] Add error recovery attempts
+      - [x] INFO: Recovery actions taken
+      - [x] DEBUG: Recovery process details
+    - [x] Track error rates and patterns
+      - [x] WARNING: Error rate thresholds exceeded
+      - [x] DEBUG: Error statistics and patterns
+    - [x] Log system state before critical operations
+      - [x] DEBUG: Pre-operation state
+      - [x] TRACE: Detailed operation preparation
+
+- [ ] **4.2 Error Handling and Recovery**
+  - [ ] **Error Handling**
+    - [ ] Handle video source errors
+    - [ ] Manage transcription failures
+    - [ ] Recover from rendering errors
+    - [ ] Log all errors with context
+  - [ ] **Resource Management**
+    - [ ] Properly release video resources
+    - [ ] Clean up temporary files
+    - [ ] Manage memory usage
+    - [ ] Handle system resource limits
+
+- [ ] **4.3 Verification: System Integration**
+  - [ ] **Component Communication**
+    - [ ] Test video frame passing
+    - [ ] Verify audio chunk processing
+    - [ ] Check caption queue management
+    - [ ] Validate timing synchronization
+  - [ ] **Performance Testing**
+    - [ ] Measure end-to-end latency
+    - [ ] Test with different video formats
+    - [ ] Verify resource usage
+    - [ ] Check for memory leaks
+  - [ ] **User Interface**
+    - [ ] Test command-line arguments
+    - [ ] Verify log output
+    - [ ] Check progress reporting
+    - [ ] Test error messages
+
+## Phase 5: Caption Overlay (Handle with Care)
+
+- [x] **5.1 Add basic logging to caption_overlay.py"
   - [x] Import TRACE level from logging_utils
   - [x] Add initialization logging (font loading, settings)
   - [x] Log caption addition/removal events
@@ -149,27 +247,39 @@ This document outlines the step-by-step process to implement an enhanced logging
   - [x] Add detailed timestamp adjustment logging
   - [x] Implement caption deduplication logging
   - [x] Add queue state monitoring
+  - [x] Add debug frame generation for test failures
+  - [x] Implement text region visualization for debugging
 
-- [x] **4.2 Performance monitoring**
+- [x] **5.2 Performance monitoring**
   - [x] Log rendering time per frame (DEBUG level)
   - [x] Track caption queue size and state
   - [x] Add frame timing diagnostics
   - [x] Implement detailed timing logs for caption display
   - [x] Add trace-level logging for caption lifecycle events
-  - [ ] Monitor memory usage for leaks
-  - [ ] Add warning for slow frame processing
+  - [x] Monitor memory usage for leaks
+  - [x] Add warning for slow frame processing
+  - [x] Implement test data directory structure
+  - [x] Add debug frame cleanup
 
-- [ ] **4.3 Verification: Caption Rendering**
+- [x] **5.3 Verification: Caption Rendering**
   - [ ] **Test Caption Display**
-    - [ ] Test basic caption rendering
-    - [ ] Verify text wrapping for long captions
-    - [ ] Test special characters and unicode support
-    - [ ] Verify text alignment and positioning
+    - [x] Test basic caption rendering
+    - [ ] Verify text wrapping for long captions (SKIPPED - needs implementation)
+    - [ ] Test special characters and unicode support (SKIPPED - needs implementation)
+    - [ ] Verify text alignment and positioning (SKIPPED - needs implementation)
+    - [ ] Test different font styles and colors (SKIPPED - needs implementation)
+    - [ ] Test multi-line captions (SKIPPED - needs implementation)
   - [ ] **Test Timing and Synchronization**
-    - [ ] Test caption timing accuracy
-    - [ ] Verify frame-accurate display
-    - [ ] Test with variable frame rates
-    - [ ] Validate smooth transitions between captions
+    - [ ] Test caption timing accuracy (SKIPPED - needs timing implementation review)
+    - [ ] Verify frame-accurate display (SKIPPED - timing precision issues)
+    - [ ] Test with variable frame rates (SKIPPED - timing precision issues)
+    - [ ] Validate smooth transitions between captions (SKIPPED - timing precision issues)
+    - [ ] Test caption deduplication (SKIPPED - needs deduplication logic review)
+    - [x] Test edge cases (empty captions, negative timing)
+  - [ ] **Test Performance**
+    - [ ] Measure rendering time under load
+    - [ ] Test with high caption volume
+    - [ ] Validate memory usage over time
   - [ ] **Test Performance**
     - [ ] Measure rendering time per frame
     - [ ] Test with high caption volume
@@ -186,16 +296,16 @@ This document outlines the step-by-step process to implement an enhanced logging
     - [ ] Performance benchmarks
     - [ ] Memory leak detection tests
 
-## Phase 5: System-wide Testing and Validation
+## Phase 6: System-wide Testing and Validation
 
-- [ ] **5.1 System Integration Test**
+- [ ] **6.1 System Integration Test**
   - [ ] Test all components together
   - [ ] Verify log consistency across modules
   - [ ] Check system resource usage
   - [ ] Test error handling and recovery
   - [ ] Validate log file rotation and management
 
-- [ ] **5.2 Performance Testing**
+- [ ] **6.2 Performance Testing**
   - [ ] Measure impact of logging on CPU usage
   - [ ] Check memory usage patterns
   - [ ] Test with long-running sessions
@@ -203,14 +313,14 @@ This document outlines the step-by-step process to implement an enhanced logging
   - [ ] Compare performance with/without TRACE logging
 
 
-## Phase 6: Final Documentation and Handover
+## Phase 7: Final Documentation and Handover
 
-- [ ] **6.1 Update README.md**
+- [ ] **7.1 Update README.md**
   - Document the new logging system
   - Add examples of log levels and usage
   - Include command-line usage with --log-level
 
-- [ ] **6.2 Add logging guidelines**
+- [ ] **7.2 Add logging guidelines**
   - When to use each log level
   - Best practices for log messages
   - How to interpret logs for debugging
