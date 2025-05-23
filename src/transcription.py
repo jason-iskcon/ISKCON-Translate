@@ -25,6 +25,12 @@ try:
 except ImportError:
     from .logging_utils import get_logger, setup_logging, TRACE
 
+# Import singleton clock
+try:
+    from clock import CLOCK
+except ImportError:
+    from .clock import CLOCK
+
 # Get logger instance with module name for better filtering
 logger = get_logger('transcription')
 
@@ -34,16 +40,18 @@ logging.getLogger('faster_whisper').setLevel(logging.WARNING)
 
 class TranscriptionEngine:
     playback_start_time = 0.0  # Global playback time origin for sync
-    def __init__(self, model_size: str = "small", device: str = "auto", compute_type: str = "auto"):
+    def __init__(self, model_size: str = "small", device: str = "auto", compute_type: str = "auto", warm_up_complete_event: threading.Event = None):
         """Initialize the transcription engine.
         
         Args:
             model_size: Size of the Whisper model (tiny, base, small, medium, large)
             device: Device to run the model on ('cuda', 'cpu', or 'auto' for automatic detection)
             compute_type: Computation type ('float16', 'int8', or 'auto' for automatic selection)
+            warm_up_complete_event: Event to signal when warm-up phase is complete
         """
         self.model_size = model_size
         self.sampling_rate = 16000  # Whisper's native sampling rate
+        self.warm_up_complete_event = warm_up_complete_event
         
         # Initialize with default values, will be set in _init_model
         self.device = "cpu"
@@ -56,8 +64,12 @@ class TranscriptionEngine:
         self.average_processing_time = 0.0
         self.playback_start_time = 0.0
         
+        # Rate limiting for log messages
+        self._last_adaptive_drop_warning_time = 0
+        
         # Threading and queues
-        self.audio_queue = queue.Queue(maxsize=15)  # Increased queue size for warm-up
+        self.audio_queue = queue.Queue(maxsize=10)  # Reduced queue size
+        logger.info(f"🔧 CONSTRUCTOR: TranscriptionEngine audio_queue created with maxsize={self.audio_queue.maxsize}")
         self.result_queue = queue.Queue()
         self.worker_thread: Optional[threading.Thread] = None
         self.audio_processor_thread: Optional[threading.Thread] = None
@@ -277,34 +289,44 @@ class TranscriptionEngine:
             logger.debug(f"Set playback start time to {timestamp:.2f}s")
             
         try:
-            # Log queue status when it's getting full
             queue_size = self.audio_queue.qsize()
-            queue_percent = (queue_size / self.audio_queue.maxsize) * 100
-            
-            if queue_percent > 80:  # Log warning when queue is 80% full
-                logger.warning(
-                    f"Audio queue filling up: {queue_size}/{self.audio_queue.maxsize} "
-                    f"({queue_percent:.0f}% full)"
-                )
-            
+
+            # Adaptive rate limiting for normal operation
+            if not self._warm_up_mode and queue_size > self.audio_queue.maxsize * 0.7:
+                # Rate limit to once per second
+                current_time = time.time()
+                if current_time - self._last_adaptive_drop_warning_time >= 1.0:
+                    logger.warning(
+                        f"Audio queue >70% full ({queue_size}/{self.audio_queue.maxsize}), "
+                        f"dropping segment to prevent further backlog."
+                    )
+                    self._last_adaptive_drop_warning_time = current_time
+                return False
+
+            # Original logic for warm-up and normal operation (now with pre-check for 70%)
             if self._warm_up_mode:
                 # During warm-up, wait a bit if queue is full to avoid dropping chunks
                 try:
-                    self.audio_queue.put(audio_segment, timeout=0.5)
+                    self.audio_queue.put(audio_segment, timeout=0.5) # Keep longer timeout for warm-up additions
                     return True
                 except queue.Full:
-                    logger.debug("Queue full during warm-up, waiting for space...")
+                    logger.debug("Audio queue full during warm-up, still waiting for space...") # Clarified log
                     return False
             else:
-                # During normal operation, use non-blocking put
-                self.audio_queue.put_nowait(audio_segment)
-                return True
-        except queue.Full:
-            if not self._warm_up_mode:  # Only log warning if not in warm-up
-                logger.warning(
-                    f"Audio queue full, dropping segment. "
-                    f"Queue: {self.audio_queue.qsize()}/{self.audio_queue.maxsize}"
-                )
+                # During normal operation, use blocking put with a shorter timeout to apply some back-pressure
+                # This part is reached if queue_size <= 70% of maxsize
+                try:
+                    self.audio_queue.put(audio_segment, block=True, timeout=0.1) # 100ms timeout
+                    return True
+                except queue.Full:
+                    # This warning will now only trigger if the 100ms blocking put fails.
+                    logger.warning(
+                        f"Audio queue still full after 100ms wait, dropping segment. "
+                        f"Queue: {self.audio_queue.qsize()}/{self.audio_queue.maxsize}"
+                    )
+                    return False
+        except queue.Full: # This top-level except queue.Full should ideally not be hit if logic above is correct
+            logger.error(f"Unexpected queue.Full caught at top-level in add_audio_segment. Warm-up: {self._warm_up_mode}")
             return False
             
     def get_transcription(self):
@@ -417,7 +439,7 @@ class TranscriptionEngine:
                     # Transcribe the audio
                     segments = []
                     try:
-                        segments, _ = self.model.transcribe(
+                        segments, info = self.model.transcribe(
                             audio_data,
                             language="en",
                             beam_size=5,
@@ -425,10 +447,12 @@ class TranscriptionEngine:
                         )
                         segments = list(segments)  # Convert generator to list to catch errors early
                         
-                        # Log successful transcription
+                        # Log successful transcription and language
                         processing_time = time.time() - start_process_time
-                        logger.debug(f"Transcription completed in {processing_time:.2f}s, "
-                                   f"found {len(segments)} segments")
+                        logger.debug(
+                            f"Transcription completed in {processing_time:.2f}s, "
+                            f"found {len(segments)} segments. Language: {info.language} (Prob: {info.language_probability:.2f})"
+                        )
                         
                     except Exception as e:
                         logger.error(f"Transcription failed: {e}", exc_info=True)
@@ -440,22 +464,35 @@ class TranscriptionEngine:
                             logger.debug("Skipping empty transcription segment")
                             continue
                             
-                        # Calculate absolute timestamps
-                        segment_start = self.playback_start_time + segment.start
-                        segment_end = self.playback_start_time + segment.end
-                        duration = segment_end - segment_start
+                        # Calculate timestamps relative to singleton clock start time
+                        # elapsed_base gives us the timestamp when this chunk started processing
+                        if CLOCK.is_initialized():
+                            # segment.start/end are relative to the audio chunk (0-3s)
+                            # elapsed_base gives us the timestamp when this chunk started processing
+                            elapsed_base = time.time() - CLOCK.start_wall_time
+                            # Since the audio chunk represents "now", we use elapsed_base directly
+                            # without adding segment.start (which would put us in the future)
+                            rel_start = elapsed_base
+                            rel_end = elapsed_base + (segment.end - segment.start)  # Just the duration
+                        else:
+                            # Fallback if clock not initialized
+                            logger.warning("Singleton clock not initialized, using fallback timestamps")
+                            rel_start = segment.start
+                            rel_end = segment.end
+                        
+                        duration = rel_end - rel_start
                         
                         # Log transcription result at INFO level
                         confidence = getattr(segment, 'confidence', None)
                         confidence_str = f", confidence: {confidence:.2f}" if confidence is not None else ""
                         logger.info(f"Transcribed: '{segment.text.strip()}' "
-                                  f"({segment_start:.2f}s-{segment_end:.2f}s{confidence_str})")
+                                  f"(rel_start={rel_start:.2f}s-{rel_end:.2f}s{confidence_str})")
                         
                         # Add to result queue for display
                         try:
                             result = {
                                 'text': segment.text.strip(),
-                                'timestamp': segment_start,
+                                'timestamp': rel_start,  # Now using elapsed-time relative timestamps
                                 'duration': duration
                             }
                             # Only add confidence if available
@@ -519,6 +556,30 @@ class TranscriptionEngine:
         if chunk_size <= 0 or overlap < 0 or overlap >= chunk_size:
             logger.error(f"Invalid chunk parameters: size={chunk_size}s, overlap={overlap}s")
             return
+            
+        # Wait for the main warm-up period to complete before active processing
+        if self.warm_up_complete_event:
+            logger.info("Audio processing thread waiting for application warm-up to complete...")
+            self.warm_up_complete_event.wait()
+            logger.info("Application warm-up complete, audio processing thread proceeding.")
+            self._warm_up_mode = False # Explicitly transition out of warm-up mode for the engine
+            
+            # Clear any audio segments that might have been queued during app warm-up
+            # or rapidly queued from VideoSource's own backlog immediately after warm_up_complete.set()
+            cleared_count = 0
+            while not self.audio_queue.empty():
+                try:
+                    self.audio_queue.get_nowait()
+                    self.audio_queue.task_done()
+                    cleared_count += 1
+                except queue.Empty:
+                    break
+            if cleared_count > 0:
+                logger.info(f"Cleared {cleared_count} audio segments from queue after app warm-up.")
+
+        else:
+            logger.warning("No warm_up_complete_event available to TranscriptionEngine. Audio processing may behave unexpectedly regarding warm-up state.")
+            self._warm_up_mode = False # Default to not in warm-up if event is missing
             
         last_process_time = 0
         video_start_time = getattr(video_source, 'start_time', 0.0)

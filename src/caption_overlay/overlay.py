@@ -157,6 +157,10 @@ class CaptionOverlayOrchestrator:
                 display_lines.extend(lines)
             logger.debug(f"Rendered captions at {current_time:.2f}s: {display_lines}")
         
+        overlay_duration = time.time() - render_start
+        if frame_count % 30 == 0: # Log overlay duration periodically (e.g., every second at 30fps)
+            logger.debug(f"[TIMING] CaptionOverlayOrchestrator.overlay_captions took {overlay_duration*1000:.2f}ms for frame {frame_count}")
+
         return result_frame
     
     # Proxy methods to core functionality for backward compatibility

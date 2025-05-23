@@ -14,6 +14,7 @@ try:
     from core.argument_parser import parse_arguments
     from core.app_initializer import initialize_app
     from core.video_runner import VideoRunner
+    from clock import CLOCK
 except ImportError:
     from .video_source import VideoSource
     from .transcription import TranscriptionEngine
@@ -22,6 +23,7 @@ except ImportError:
     from .core.argument_parser import parse_arguments
     from .core.app_initializer import initialize_app
     from .core.video_runner import VideoRunner
+    from .clock import CLOCK
 
 # Get logger instance
 logger = get_logger(__name__)
@@ -49,7 +51,7 @@ def main(video_file=None):
         # Start at 5:25 (325 seconds) where English translation begins
         start_offset = 325.0  # Start 5:25 into the video
         with VideoSource(video_file, start_time=start_offset) as video_source, \
-             TranscriptionEngine() as transcriber, \
+             TranscriptionEngine(warm_up_complete_event=video_source.warm_up_complete) as transcriber, \
              CaptionOverlay(
                  font_scale=1.5,  # Larger font for better readability
                  font_thickness=2,
@@ -59,11 +61,7 @@ def main(video_file=None):
                  y_offset=50                  # Position from bottom of frame
              ) as caption_overlay:
             
-            # Set the video start time for caption synchronization using actual playback start time
-            video_start_time = video_source.playback_start_time
-            caption_overlay.set_video_start_time(video_start_time)
-            logger.info(f"[SYNC] Video start time set to: {video_start_time}")
-            
+            # Caption overlay video start time will be set after singleton clock initialization
             # Connect caption overlay to transcription engine
             transcriber.caption_overlay = caption_overlay
             
@@ -78,6 +76,13 @@ def main(video_file=None):
             ]
             
             logger.info("All components initialized")
+            
+            # BUILD VERIFICATION BANNER - Confirm queue sizes and runtime version
+            git_commit = os.environ.get('GIT_COMMIT', 'dev')
+            frame_q_size = video_source.frames_queue.maxsize
+            audio_q_size = transcriber.audio_queue.maxsize
+            logger.info(f"🚀 BUILD TAG: {git_commit} | frame_q={frame_q_size} | audio_q={audio_q_size}")
+            logger.info(f"🔧 RUNTIME VERIFICATION: VideoSource.frames_queue.maxsize={frame_q_size}, TranscriptionEngine.audio_queue.maxsize={audio_q_size}")
             
             # Get video information
             width, height, fps = video_source.get_video_info()
@@ -109,10 +114,23 @@ def main(video_file=None):
             
             # Schedule test captions with relative timestamps
             # Using video-relative timestamps (0 = start of video)
-            logger.info(f"[DEBUG] Video start time: {video_start_time}")
+            logger.info(f"[DEBUG] Video start time: {video_source.playback_start_time}")
             
             # Signal video source that warm-up is complete
             video_source.warm_up_complete.set()
+
+            # Set the wall-clock start time now that warm-up is complete
+            if CLOCK.start_wall_time is None:
+                CLOCK.start_wall_time = time.time()
+                logger.info(f"🔧 Set singleton clock start_wall_time = {CLOCK.start_wall_time:.2f} (wall-clock time)")
+            
+            # Set compatibility property for existing code
+            video_source.playback_start_time = CLOCK.start_wall_time
+            logger.info(f"[SYNC] Using singleton clock: media_seek_pts={CLOCK.media_seek_pts:.2f}s, start_wall_time={CLOCK.start_wall_time:.2f}")
+
+            # Now set the caption overlay video start time using the singleton clock
+            caption_overlay.set_video_start_time(CLOCK.start_wall_time)
+            logger.info(f"[SYNC] Caption overlay video start time set to: {CLOCK.start_wall_time}")
 
             # Set playback start time for correct timestamping in transcription
             transcriber.playback_start_time = video_source.playback_start_time
@@ -122,10 +140,10 @@ def main(video_file=None):
             time.sleep(0.5)
             
             # Get the current time after warm-up is complete
-            current_playback_time = time.time() - video_start_time
+            current_playback_time = time.time() - video_source.playback_start_time
             logger.info("\n=== SCHEDULING TEST CAPTIONS ===")
             logger.info(f"System time: {time.time()}")
-            logger.info(f"Video start time: {video_start_time}")
+            logger.info(f"Video start time: {video_source.playback_start_time}")
             logger.info(f"Current playback time: {current_playback_time:.2f}s")
             
             # Schedule test captions relative to current playback time

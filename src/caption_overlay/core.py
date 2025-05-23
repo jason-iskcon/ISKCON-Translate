@@ -2,6 +2,16 @@
 import time
 import threading
 import logging
+from typing import List, Dict, Any, Optional
+
+# Import singleton clock
+try:
+    from ..clock import CLOCK
+except ImportError:
+    try:
+        from clock import CLOCK
+    except ImportError:
+        from src.clock import CLOCK
 
 # Import with try-except to handle both direct execution and module import
 try:
@@ -35,19 +45,12 @@ class CaptionCore:
         Args:
             start_time: The absolute timestamp where the video starts (in seconds)
         """
-        if not hasattr(self, 'video_start_time') or self.video_start_time == 0:
-            self.video_start_time = start_time
-            logger.info(f"Set initial video start time to {start_time} (absolute)")
-        else:
-            # Only update if the new start time is earlier than current
-            if start_time < self.video_start_time:
-                logger.info(f"Updating video start time from {self.video_start_time} to {start_time}")
-                self.video_start_time = start_time
-            else:
-                logger.debug(f"Ignoring later video start time: {start_time} (current: {self.video_start_time})")
+        # Always update when explicitly called - this is the authoritative source
+        old_time = getattr(self, 'video_start_time', 'not set')
+        self.video_start_time = start_time
+        logger.info(f"Video start time updated from {old_time} to {start_time} (absolute)")
         
-        logger.debug(f"[TIMING] Previous video start time: {getattr(self, 'video_start_time', 'not set')}")
-        logger.info(f"[TIMING] Video start time set to {start_time}. Current offset: {time.time() - start_time:.2f}s")
+        logger.debug(f"[TIMING] Video start time set to {start_time}. Current offset: {time.time() - start_time:.2f}s")
         logger.trace(f"[TIMING] Video start time details - System time: {time.time()}, Offset: {time.time() - start_time:.6f}s")
     
     def add_caption(self, text, timestamp, duration=3.0, is_absolute=False, seamless=True):
@@ -64,62 +67,24 @@ class CaptionCore:
             dict: The added caption or None if skipped
         """
         with self.lock:
-            # Initialize video start time if not set
-            if not hasattr(self, 'video_start_time') or self.video_start_time == 0:
-                self.video_start_time = time.time()
-                logger.warning(f"Video start time not set, using current time: {self.video_start_time}")
-            
             # Store original values for logging
             original_timestamp = timestamp
             current_time = time.time()
             
-            # Convert timestamp using utility function
-            timestamp, was_converted = convert_timestamp(timestamp, self.video_start_time, is_absolute)
-            
             # Calculate current relative time
             current_relative_time = current_time - self.video_start_time
             
-            # Log the caption addition with timing details
-            logger.debug(f"[CAPTION] Adding: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.2f}s for {duration:.1f}s")
-            logger.trace(
-                f"[TIMING] Video start: {self.video_start_time:.2f}, "
-                f"Current time: {current_time:.2f}, "
-                f"Current relative: {current_relative_time:.2f}s"
-            )
-            
-            # Move detailed timing to TRACE level
-            logger.trace(f"[TIMING] System time: {current_time:.6f}")
-            logger.trace(f"[TIMING] Video start: {getattr(self, 'video_start_time', 0):.6f}")
-            logger.trace(f"[TIMING] Relative time: {current_relative_time:.6f}s")
+            # Convert timestamp using utility function ONLY if absolute
+            if is_absolute:
+                timestamp, was_converted = convert_timestamp(timestamp, self.video_start_time, is_absolute)
+                logger.debug(f"[CAPTION] Converted absolute timestamp: {original_timestamp:.2f}s -> {timestamp:.2f}s")
+            else:
+                # For relative timestamps, use directly without conversion
+                logger.trace(f"[CAPTION] Using relative timestamp directly: {timestamp:.2f}s")
+                was_converted = False
             
             # Adjust timestamp if in the past
             timestamp = adjust_timestamp_if_past(timestamp, current_relative_time)
-            
-            # Move detailed timing to DEBUG level
-            logger.debug(
-                f"[CAPTION] Scheduling | "
-                f"Starts in: {max(0, timestamp - current_relative_time):.2f}s | "
-                f"Duration: {duration:.1f}s"
-            )
-            
-            # Skip empty captions
-            if not text or not text.strip():
-                logger.debug("Skipping empty caption")
-                return None
-            
-            # Validate and normalize duration
-            duration = validate_duration(duration)
-            
-            logger.trace(f"Adding caption: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.6f}s for {duration:.3f}s")
-            
-            # Clean up the text
-            text = normalize_text(text)
-            
-            # Check for duplicate/similar captions
-            if self.captions and seamless:
-                last_caption = self.captions[-1]
-                if should_skip_similar_caption(text, last_caption):
-                    return None
             
             # Create caption entry
             caption = {
