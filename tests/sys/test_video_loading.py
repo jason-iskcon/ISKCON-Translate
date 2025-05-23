@@ -52,7 +52,8 @@ class TestVideoSourceLoading:
             Path to the created video file
         """
         # Create output directory if it doesn't exist
-        output_dir = os.path.join(os.path.dirname(__file__), '..', 'test_data')
+        tests_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        output_dir = os.path.join(tests_dir, 'test_data')
         os.makedirs(output_dir, exist_ok=True)
         
         # Generate output filename
@@ -102,7 +103,8 @@ class TestVideoSourceLoading:
     def tearDownClass(cls):
         """Clean up test files after all tests are done."""
         # Clean up test video files
-        test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'test_data')
+        tests_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        test_data_dir = os.path.join(tests_dir, 'test_data')
         if os.path.exists(test_data_dir):
             for file in os.listdir(test_data_dir):
                 if file.startswith('test_video_') and (file.endswith('.mp4') or 
