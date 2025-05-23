@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import time
+import re
+import logging
 
 # Import with try-except to handle both direct execution and module import
 try:
@@ -26,13 +28,13 @@ class CaptionOverlay:
         """
         import threading
         
-        logger.info("Initializing CaptionOverlay")
-        logger.debug(f"Font scale: {font_scale}, Thickness: {font_thickness}")
-        logger.debug(f"Text color: {font_color}, BG color: {bg_color}")
-        logger.debug(f"Padding: {padding}px, Y-Offset: {y_offset}px")
+        logger.debug("Initializing CaptionOverlay")
+        logger.trace(f"Font scale: {font_scale}, Thickness: {font_thickness}")
+        logger.trace(f"Text color: {font_color}, BG color: {bg_color}")
+        logger.trace(f"Padding: {padding}px, Y-Offset: {y_offset}px")
         
         self.captions = []  # List of dicts with text, start_time, end_time, and is_absolute flag
-        self.video_start_time = 0  # Track when the video started
+        self.video_start_time = time.time()  # Default to current time
         self.lock = threading.Lock()  # For thread-safe access to captions list
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.font_scale = font_scale
@@ -41,9 +43,7 @@ class CaptionOverlay:
         self.bg_color = bg_color
         self.padding = padding
         self.y_offset = y_offset
-        logger.info("CaptionOverlay initialized")
-        
-        logger.debug("CaptionOverlay initialization complete")
+        logger.debug(f"CaptionOverlay initialized with start time: {self.video_start_time}")
         
     def set_video_start_time(self, start_time):
         """Set the video's start time to handle offset captions.
@@ -51,9 +51,17 @@ class CaptionOverlay:
         Args:
             start_time: The absolute timestamp where the video starts (in seconds)
         """
-        logger.info(f"[TIMING] Setting video start time to {start_time} (current time: {time.time()})")
+        if not hasattr(self, 'video_start_time') or self.video_start_time == 0:
+            self.video_start_time = start_time
+            logger.info(f"Set initial video start time to {start_time} (absolute)")
+        else:
+            # Only update if the new start time is earlier than current
+            if start_time < self.video_start_time:
+                logger.info(f"Updating video start time from {self.video_start_time} to {start_time}")
+                self.video_start_time = start_time
+            else:
+                logger.debug(f"Ignoring later video start time: {start_time} (current: {self.video_start_time})")
         logger.debug(f"[TIMING] Previous video start time: {getattr(self, 'video_start_time', 'not set')}")
-        self.video_start_time = start_time
         logger.info(f"[TIMING] Video start time set to {start_time}. Current offset: {time.time() - start_time:.2f}s")
         logger.trace(f"[TIMING] Video start time details - System time: {time.time()}, Offset: {time.time() - start_time:.6f}s")
         
@@ -69,7 +77,7 @@ class CaptionOverlay:
         
         Args:
             text: Caption text to display
-            timestamp: Timestamp for when to show the caption
+            timestamp: Timestamp for when to show the caption (relative to video start)
             duration: How long to display the caption in seconds
             is_absolute: If True, timestamp is treated as absolute system time
             seamless: If True, will try to merge with previous caption if similar
@@ -78,49 +86,81 @@ class CaptionOverlay:
             dict: The added caption or None if skipped
         """
         with self.lock:
-            original_timestamp = timestamp
+            # Initialize video start time if not set
+            if not hasattr(self, 'video_start_time') or self.video_start_time == 0:
+                self.video_start_time = time.time()
+                logger.warning(f"Video start time not set, using current time: {self.video_start_time}")
             
-            # Log current state with timing details
+            # Store original values for logging
+            original_timestamp = timestamp
             current_time = time.time()
-            current_relative = current_time - (self.video_start_time if hasattr(self, 'video_start_time') else current_time)
             
             # Convert absolute timestamp to relative if needed
             if is_absolute:
-                original_timestamp = timestamp
-                timestamp = timestamp - self.video_start_time
-                logger.debug(f"[CAPTION] Adding absolute timestamp at {original_timestamp:.2f}s (relative: {timestamp:.2f}s) for {duration:.1f}s")
-                logger.trace(f"[TIMING] Absolute: {original_timestamp:.6f}, Video start: {self.video_start_time:.6f}, Relative: {timestamp:.6f}")
-            else:
-                logger.debug(f"[CAPTION] Adding relative caption at {timestamp:.2f}s for {duration:.1f}s")
+                # If timestamp is before video start, it's likely already relative
+                if timestamp < self.video_start_time:
+                    logger.debug(f"[TIMING] Timestamp {timestamp:.2f} is before video start, treating as relative")
+                    is_absolute = False
+                else:
+                    # Convert absolute timestamp to relative
+                    relative_time = timestamp - self.video_start_time
+                    logger.debug(f"[TIMING] Converted absolute {timestamp:.2f} to relative {relative_time:.2f}s")
+                    timestamp = relative_time
+            
+            # Ensure timestamp is positive
+            if timestamp < 0:
+                logger.warning(f"[TIMING] Negative timestamp {timestamp:.2f}s, adjusting to 0")
+                timestamp = 0
+            
+            # Calculate current relative time
+            current_relative_time = current_time - self.video_start_time
+            
+            # Log the caption addition with timing details
+            logger.debug(f"[CAPTION] Adding: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.2f}s for {duration:.1f}s")
+            logger.trace(
+                f"[TIMING] Video start: {self.video_start_time:.2f}, "
+                f"Current time: {current_time:.2f}, "
+                f"Current relative: {current_relative_time:.2f}s"
+            )
             
             # Move detailed timing to TRACE level
             logger.trace(f"[TIMING] System time: {current_time:.6f}")
             logger.trace(f"[TIMING] Video start: {getattr(self, 'video_start_time', 0):.6f}")
-            logger.trace(f"[TIMING] Relative time: {current_relative:.6f}s")
+            logger.trace(f"[TIMING] Relative time: {current_relative_time:.6f}s")
             
             # If the caption is in the past, adjust it to show immediately
-            if timestamp < current_relative:
-                time_diff = current_relative - timestamp
-                logger.debug(f"[CAPTION] Adjusting timestamp by {time_diff:.2f}s")
-                logger.trace(
-                    f"[TIMING] Adjustment details | "
-                    f"Original: {timestamp:.6f}s | "
-                    f"Current: {current_relative:.6f}s | "
-                    f"Difference: {time_diff:.6f}s"
-                )
-                timestamp = current_relative
+            if timestamp < current_relative_time:
+                time_diff = current_relative_time - timestamp
+                if time_diff > 1.0:  # Only log if more than 1 second adjustment
+                    logger.debug(f"[CAPTION] Adjusting timestamp by {time_diff:.2f}s (was in the past)")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.trace(
+                            f"[TIMING] Adjustment details | "
+                            f"Original: {timestamp:.6f}s | "
+                            f"Current: {current_relative_time:.6f}s | "
+                            f"Difference: {time_diff:.6f}s"
+                        )
+                timestamp = current_relative_time  # Show immediately
             
             # Move detailed timing to DEBUG level
             logger.debug(
                 f"[CAPTION] Scheduling | "
-                f"Starts in: {max(0, timestamp - current_relative):.2f}s | "
+                f"Starts in: {max(0, timestamp - current_relative_time):.2f}s | "
                 f"Duration: {duration:.1f}s"
             )
             
             # Skip empty captions
-            if not text.strip():
+            if not text or not text.strip():
                 logger.debug("Skipping empty caption")
                 return None
+                
+            # Ensure duration is positive and reasonable
+            if duration <= 0:
+                logger.warning(f"Invalid duration {duration:.1f}s, using default 3.0s")
+                duration = 3.0
+            elif duration > 10.0:  # Arbitrary max duration
+                logger.warning(f"Unusually long duration {duration:.1f}s, capping at 10.0s")
+                duration = 10.0
                 
             logger.trace(f"Adding caption: '{text[:50]}{'...' if len(text) > 50 else ''}' at {timestamp:.6f}s for {duration:.3f}s")
                 
@@ -201,7 +241,7 @@ class CaptionOverlay:
             return caption
 
     def _text_similarity(self, text1, text2):
-        """Calculate a simple text similarity score between two strings.
+        """Calculate a text similarity score between two strings.
         
         Args:
             text1 (str): First text to compare
@@ -213,18 +253,149 @@ class CaptionOverlay:
         if not text1 or not text2:
             return 0.0
             
-        # Convert to lowercase and split into words
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
-        
-        if not words1 and not words2:
+        # If either string is empty after stripping, return 0.0
+        text1 = text1.strip()
+        text2 = text2.strip()
+        if not text1 or not text2:
+            return 0.0
+            
+        # If strings are exactly the same, return 1.0 immediately
+        if text1 == text2:
             return 1.0
             
-        # Calculate Jaccard similarity
-        intersection = len(words1.intersection(words2))
-        union = len(words1.union(words2))
+        # More aggressive normalization for comparison
+        def normalize_text(t):
+            # Convert to lowercase
+            t = t.lower()
+            # Remove all punctuation except apostrophes
+            t = re.sub(r'[^\w\s\']', ' ', t)
+            # Normalize whitespace and apostrophes
+            t = re.sub(r'\s+', ' ', t).strip()
+            t = re.sub(r'\'\s+', '\'', t)  # Fix spaces after apostrophes
+            t = re.sub(r'\s+\'', '\'', t)  # Fix spaces before apostrophes
+            return t
+            
+        norm1 = normalize_text(text1)
+        norm2 = normalize_text(text2)
         
-        return intersection / union if union > 0 else 0.0
+        # If normalized strings are identical, return 1.0
+        if norm1 == norm2:
+            return 1.0
+            
+        # If one normalized string is a substring of the other, return high similarity
+        if norm1 in norm2 or norm2 in norm1:
+            shorter, longer = (norm1, norm2) if len(norm1) < len(norm2) else (norm2, norm1)
+            similarity = len(shorter) / len(longer)
+            # Only consider it a match if the shorter string is at least 60% of the longer one
+            return similarity if similarity >= 0.6 else 0.0
+            
+        # Split into words for word-based comparison
+        words1 = [w for w in norm1.split() if w.strip()]
+        words2 = [w for w in norm2.split() if w.strip()]
+        
+        # If one of the texts is a single word that's a prefix/suffix of any word in the other
+        if len(words1) == 1 or len(words2) == 1:
+            single_word = words1[0] if len(words1) == 1 else words2[0]
+            other_words = words2 if len(words1) == 1 else words1
+            
+            # Check if the single word is a prefix/suffix of any word in the other text
+            for word in other_words:
+                if single_word in word or word in single_word:
+                    return min(0.9, len(min(single_word, word, key=len)) / len(max(single_word, word, key=len)))
+        
+        # Calculate Jaccard similarity between word sets (case insensitive)
+        set1 = set(words1)
+        set2 = set(words2)
+        
+        if not set1 and not set2:
+            return 1.0
+            
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+        
+        if union == 0:
+            return 0.0
+            
+        jaccard_sim = intersection / union
+        
+        # If Jaccard similarity is very high, return early
+        if jaccard_sim >= 0.8:
+            return jaccard_sim
+            
+        # Calculate character-based similarity using Levenshtein distance
+        def levenshtein_ratio(s1, s2):
+            """Calculate the Levenshtein distance ratio between two strings."""
+            if not s1 or not s2:
+                return 0.0
+                
+            rows = len(s1) + 1
+            cols = len(s2) + 1
+            
+            # Create a matrix of zeros
+            distance = [[0 for _ in range(cols)] for _ in range(rows)]
+            
+            # Initialize the first row and column
+            for i in range(1, rows):
+                distance[i][0] = i
+            for j in range(1, cols):
+                distance[0][j] = j
+                
+            # Calculate distances
+            for i in range(1, rows):
+                for j in range(1, cols):
+                    if s1[i-1] == s2[j-1]:
+                        cost = 0
+                    else:
+                        cost = 1
+                    distance[i][j] = min(
+                        distance[i-1][j] + 1,      # Deletion
+                        distance[i][j-1] + 1,      # Insertion
+                        distance[i-1][j-1] + cost   # Substitution
+                    )
+            
+            # Calculate ratio
+            max_len = max(len(s1), len(s2))
+            if max_len == 0:
+                return 1.0
+            return 1 - (distance[rows-1][cols-1] / max_len)
+            
+        # Calculate character-level similarity using Levenshtein
+        char_sim = levenshtein_ratio(norm1, norm2)
+        
+        # If character similarity is very high, return early
+        if char_sim >= 0.9:
+            return char_sim
+            
+        # Calculate word order similarity
+        def word_order_similarity(w1, w2):
+            common = set(w1) & set(w2)
+            if not common:
+                return 0.0
+                
+            # Get positions of common words in each text
+            pos1 = [i for i, w in enumerate(w1) if w in common]
+            pos2 = [i for i, w in enumerate(w2) if w in common]
+            
+            # If word order is the same, return higher similarity
+            if pos1 == pos2:
+                return 1.0
+                
+            # Otherwise, calculate how far out of order they are
+            pos_diff = sum(abs(p1 - p2) for p1, p2 in zip(pos1, pos2)) / len(common)
+            return 1.0 / (1.0 + pos_diff)
+            
+        word_order_sim = word_order_similarity(words1, words2) if words1 and words2 else 0.0
+        
+        # Calculate final similarity as weighted average
+        similarity = (
+            0.5 * jaccard_sim +    # Word set similarity (most important)
+            0.3 * char_sim +      # Character-level similarity
+            0.2 * word_order_sim   # Word order similarity (least important)
+        )
+        
+        # Apply a threshold - only consider it a match if similarity is high enough
+        # Lower threshold to 0.6 to catch more similar captions
+        return similarity if similarity >= 0.6 else 0.0
         
     def prune_captions(self, current_time, buffer=1.0):
         """
@@ -294,37 +465,36 @@ class CaptionOverlay:
         # Caption rendering is now handled by the main application
         # Test captions are added via add_caption() from main.py
         
-        # Log timing info every second for debugging
-        if frame_count % 30 == 0:  # Log every second at 30fps
-            logger.info(f"[OVERLAY] Frame {frame_count} | Time: {current_relative_time:.2f}s | Captions in queue: {len(self.captions)}")
-            if self.captions:
-                logger.info("[OVERLAY] Next caption in queue:")
-                for i, c in enumerate(sorted(self.captions, key=lambda x: x['start_time'])[:3]):  # Show next 3 captions by start time
+        # Log timing info less frequently for production
+        if frame_count % 180 == 0:  # Log every 6 seconds at 30fps
+            logger.debug(f"[OVERLAY] Frame {frame_count} | Time: {current_relative_time:.2f}s | Captions in queue: {len(self.captions)}")
+            if self.captions and logger.isEnabledFor(TRACE):
+                logger.trace("[OVERLAY] Next caption in queue:")
+                for i, c in enumerate(sorted(self.captions, key=lambda x: x['start_time'])[:3]):
                     time_until = c['start_time'] - current_relative_time
                     status = "ACTIVE " if c['start_time'] <= current_relative_time <= c['end_time'] else "PENDING"
-                    logger.info(f"  {i+1}. [{status}] In {time_until:6.2f}s: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}'")
+                    logger.trace(f"  {i+1}. [{status}] In {time_until:6.2f}s: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}'")
     
-        # Log caption state for debugging - less frequent for production
-        log_frequency = 15  # Log at ~2fps for debugging (every 15 frames at 30fps)
+        # Log caption state less frequently for production
+        log_frequency = 90  # Log every 3 seconds at 30fps
         should_log = frame_count % log_frequency == 0
         
-        if should_log:
-            # Keep basic frame info at DEBUG level
-            logger.debug(f"[OVERLAY] Processing frame {frame_count}")
+        if should_log and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"[OVERLAY] Processing frame {frame_count} at {current_relative_time:.2f}s")
             
-            # Move detailed timing to TRACE level
-            logger.trace(
-                f"[TIMING] Frame {frame_count} details - "
-                f"Relative time: {current_relative_time:.6f}s | "
-                f"Video start: {self.video_start_time:.6f} | "
-                f"System time: {time.time():.6f} | "
-                f"Time since start: {time.time() - self.video_start_time:.6f}s"
-            )
+            if logger.isEnabledFor(TRACE):
+                logger.trace(
+                    f"[TIMING] Frame {frame_count} details - "
+                    f"Relative time: {current_relative_time:.6f}s | "
+                    f"Video start: {self.video_start_time:.6f} | "
+                    f"System time: {time.time():.6f} | "
+                    f"Time since start: {time.time() - self.video_start_time:.6f}s"
+                )
         
         with self.lock:
             # First, remove any captions that have already ended (with a small buffer)
             before_prune = len(self.captions)
-            self.captions = [c for c in self.captions if c['end_time'] > current_time - 1.0]  # Keep captions that ended <1s ago
+            self.captions = [c for c in self.captions if c['end_time'] > current_relative_time - 1.0]  # Keep captions that ended <1s ago
             after_prune = len(self.captions)
             
             if before_prune != after_prune:
@@ -344,7 +514,7 @@ class CaptionOverlay:
             logger.trace(f"[OVERLAY] Processing {len(self.captions)} captions at time {current_relative_time:.6f}")
             
             for i, c in enumerate(self.captions):
-                # Calculate timing for this caption
+                # Calculate timing for this caption using current_relative_time
                 time_until_start = c['start_time'] - current_relative_time
                 time_until_end = c['end_time'] - current_relative_time
                 
@@ -435,13 +605,15 @@ class CaptionOverlay:
                         )
                         continue
                         
-                    # Skip if caption has ended (with small buffer)
+                    # If caption has ended (with small buffer), mark it for removal
                     if current_time > caption_end + 0.1:
                         logger.trace(
-                            f"[RENDER] Skipping caption {i} - Already ended | "
+                            f"[RENDER] Removing caption {i} - Already ended | "
                             f"Current: {current_time:.6f}s | End: {caption_end:.6f}s | "
                             f"Time since end: {current_time - caption_end:.6f}s"
                         )
+                        # Mark for removal after iteration
+                        captions_to_remove.append(current_caption)
                         continue
                         
                     # Calculate time in caption and time until end
@@ -618,7 +790,7 @@ class CaptionOverlay:
             
             # Log all captions in queue for debugging
             if self.captions and should_log:
-                logger.info("[OVERLAY] Caption queue (by start time):")
+                logger.trace("[OVERLAY] Caption queue (by start time):")
                 for i, c in enumerate(sorted(self.captions, key=lambda x: x['start_time'])):
                     time_until = c['start_time'] - current_relative_time
                     time_remaining = c['end_time'] - current_relative_time
@@ -639,7 +811,7 @@ class CaptionOverlay:
             
             # Log caption timing info for debugging
             if should_log and self.captions:
-                logger.info("[OVERLAY] Caption timing details:")
+                logger.trace("[OVERLAY] Caption timing details:")
                 for i, c in enumerate(sorted(self.captions, key=lambda x: x['start_time'])):
                     time_until = c['start_time'] - current_relative_time
                     time_remaining = c['end_time'] - current_relative_time

@@ -268,25 +268,26 @@ def main(video_file=None):
                                     # Log the transcription with current video time for debugging
                                     logger.info(f"[TRANSCRIPTION] Received: '{text}' at {start_time:.2f}s (video: {video_source.get_current_time():.2f}s)")
                                     
-                                    # Ensure start_time is relative to video start
-                                    if start_time > video_start_time:  # Likely an absolute timestamp
-                                        start_time = start_time - video_start_time
-                                        logger.info(f"[TIMING] Converted absolute timestamp to relative: {start_time:.2f}s")
+                                    # Convert to relative time if needed - assume timestamps are absolute
+                                    relative_start = start_time - video_start_time
+                                    logger.info(f"[TIMING] Converted timestamp {start_time:.2f} to relative: {relative_start:.2f}s (video start: {video_start_time:.2f})")
+                                    
+                                    # Validate the timestamp is within reasonable bounds
+                                    if relative_start < 0:
+                                        logger.warning(f"[TIMING] Negative relative timestamp {relative_start:.2f}s, adjusting to 0")
+                                        relative_start = 0
                                     
                                     # Add the caption with relative time
                                     caption_text = text
                                     if caption_text:  # Only add non-empty captions
-                                        logger.info(f"[CAPTION] Adding: {caption_text!r} at {start_time:.2f}s for {duration:.1f}s")
+                                        logger.info(f"[CAPTION] Adding: {caption_text!r} at {relative_start:.2f}s for {duration:.1f}s")
                                         try:
-                                            # Ensure we're using relative timestamps (0-based from video start)
-                                            relative_start = start_time
-                                            logger.info(f"  - Using relative start time: {relative_start:.2f}s")
-                                            
+                                            # Add with relative timestamp
                                             caption_overlay.add_caption(
                                                 caption_text,
                                                 timestamp=relative_start,
                                                 duration=duration,
-                                                is_absolute=False  # Explicitly using relative timestamps
+                                                is_absolute=False  # Using relative timestamps
                                             )
                                             logger.info("[CAPTION] Added successfully")
                                         except Exception as e:
