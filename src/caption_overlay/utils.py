@@ -98,20 +98,26 @@ def convert_timestamp(timestamp, video_start_time, is_absolute=False):
     was_converted = False
     
     if is_absolute:
-        # If timestamp is before video start, it's likely already relative
-        if timestamp < video_start_time:
-            logger.debug(f"[TIMING] Timestamp {timestamp:.2f} is before video start, treating as relative")
-            is_absolute = False
-        else:
-            # Convert absolute timestamp to relative
+        # Add tolerance window to distinguish between legitimate absolute wall-clock times
+        # and elapsed-time timestamps. Use a much larger threshold for real absolute times.
+        tolerance_window = 1000000  # 1M seconds (way in future) - for real absolute wall-clock times
+        
+        # Check if this is a real absolute wall-clock time (very large number like 1732321234.5)
+        current_wall_time = time.time()
+        if timestamp > current_wall_time - 86400 and timestamp < current_wall_time + 3600:
+            # This looks like a real wall-clock timestamp (within last 24h to next 1h)
             relative_time = timestamp - video_start_time
-            logger.debug(f"[TIMING] Converted absolute {timestamp:.2f} to relative {relative_time:.2f}s")
+            logger.debug(f"[TIMING] Converted wall-clock absolute {timestamp:.2f} to relative {relative_time:.2f}s")
             timestamp = relative_time
             was_converted = True
+        else:
+            # This is likely already an elapsed time or media PTS, treat as relative
+            logger.debug(f"[TIMING] Timestamp {timestamp:.2f} appears to be elapsed time, keeping as-is")
+            is_absolute = False
     
-    # Ensure timestamp is positive
-    if timestamp < 0:
-        logger.warning(f"[TIMING] Negative timestamp {timestamp:.2f}s, adjusting to 0")
+    # Ensure timestamp is reasonable (but allow small negative values for near-real-time captions)
+    if timestamp < -1.0:  # Allow up to 1 second before start for timing tolerance
+        logger.warning(f"[TIMING] Timestamp {timestamp:.2f}s is too far in past, adjusting to 0")
         timestamp = 0
         was_converted = True
     

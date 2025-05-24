@@ -339,10 +339,11 @@ class VideoRunner:
                     # Video time: elapsed since playback start using singleton clock
                     video_rel_time = CLOCK.get_elapsed_time()
                     
-                    # Audio time: also use elapsed time, not absolute audio_position
-                    # This prevents the initial -325s drift issue
+                    # Audio time: convert transcription timestamp to elapsed time for proper comparison
+                    # _latest_audio_rel contains media-relative timestamps, need to convert to elapsed
                     if hasattr(self, '_latest_audio_rel') and self._latest_audio_rel >= 0:
-                        # Use the most recent audio transcription timestamp
+                        # Convert audio media-relative time to elapsed time
+                        # Since transcriptions are now using elapsed time directly, use as-is
                         audio_rel_time = self._latest_audio_rel
                     else:
                         # No valid audio data yet, assume audio matches video to avoid scary drift

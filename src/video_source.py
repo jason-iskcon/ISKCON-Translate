@@ -81,7 +81,12 @@ class VideoSource:
         self.audio_position = 0.0  # Current audio position in seconds
         self.audio_position_lock = threading.RLock()
         self.playback_started = threading.Event()
-        self.warm_up_complete = threading.Event()
+        
+        # Replace single Event with a Barrier for proper 3-way synchronization
+        # Participants: main thread, capture thread, transcription thread
+        self.warm_up_barrier = threading.Barrier(3, action=self._on_warm_up_complete)
+        self.warm_up_complete = threading.Event()  # Keep for backward compatibility
+        
         self.start_sync_event = threading.Event()  # For exact start synchronization
         
         # Compatibility properties for existing code
@@ -96,6 +101,11 @@ class VideoSource:
         self._error = None
         self._capture_thread = None
         self._start_cv = threading.Condition()
+        
+    def _on_warm_up_complete(self):
+        """Barrier action called when all three threads reach the warm-up barrier."""
+        self.logger.info("🔧 All threads reached warm-up barrier - synchronization complete")
+        self.warm_up_complete.set()  # Set the legacy event for backward compatibility
         
     def start(self):
         """Start video capture and processing."""
@@ -175,7 +185,6 @@ class VideoSource:
                 
                 # Clear sync events before starting threads
                 self.start_sync_event.clear()
-                self.warm_up_complete.clear()
                 
                 # Start video thread
                 logger.info("Starting video capture thread")
@@ -290,9 +299,15 @@ class VideoSource:
         max_empty_frames = int(self._video_fps * 2) # 2 seconds worth of empty frames
 
         # Wait for the main application warm-up to complete before starting capture loop
-        self.logger.info("Capture thread waiting for application warm-up...")
-        self.warm_up_complete.wait() # Blocks until main.py sets this event
-        self.logger.info("Application warm-up complete. Capture thread starting frame acquisition.")
+        self.logger.info("Capture thread waiting for warm-up barrier...")
+        try:
+            self.warm_up_barrier.wait()  # Wait for all 3 threads to reach the barrier
+            self.logger.info("Capture thread passed warm-up barrier, starting frame acquisition.")
+        except threading.BrokenBarrierError:
+            self.logger.error("Warm-up barrier was broken, proceeding anyway")
+            # Fall back to old event-based system
+            self.warm_up_complete.wait()
+            self.logger.info("Application warm-up complete. Capture thread starting frame acquisition.")
 
         # Pre-buffer a small number of frames *after* warm-up, without pacing
         initial_buffer_target = 5
@@ -322,7 +337,12 @@ class VideoSource:
         last_frame_capture_time = time.time()
 
         try:
-            while self.is_running and not self._stop_event.is_set() and self._cap.isOpened():
+            while self.is_running and not self._stop_event.is_set():
+                # Add isOpened() guard before attempting to read frame
+                if not hasattr(self, '_cap') or not self._cap.isOpened():
+                    self.logger.debug("Video capture is not open, stopping capture thread")
+                    break
+                    
                 capture_start_time = time.time()
                 ret, frame = self._cap.read()
 
@@ -335,6 +355,10 @@ class VideoSource:
                         break
                     time.sleep(0.01) # Brief pause if no frame
                     continue
+                
+                # Double-check is_running before processing frame (atomic flag check)
+                if not self.is_running:
+                    break
                 
                 consecutive_empty_frames = 0 # Reset on successful frame read
                 current_frame_pos = self._cap.get(cv2.CAP_PROP_POS_FRAMES)
@@ -381,8 +405,13 @@ class VideoSource:
             self._error_occurred = True
         finally:
             self.logger.info("Video capture thread stopping.")
-            if self._cap.isOpened():
-                self._cap.release()
+            # Only try to release if we still have a valid capture object
+            if hasattr(self, '_cap') and self._cap is not None and self._cap.isOpened():
+                try:
+                    self._cap.release()
+                    self.logger.debug("Video capture released from capture thread")
+                except Exception as e:
+                    self.logger.warning(f"Error releasing video capture in thread: {e}")
             self.is_running = False
             # Signal any waiting threads that capture is done
             with self._frame_available_cv:
@@ -522,8 +551,8 @@ class VideoSource:
                 if CLOCK.is_initialized():
                     # Calculate elapsed time since warm-up completion
                     elapsed_time = time.time() - CLOCK.start_wall_time
-                    # Audio chunks should be timestamped relative to the seek position
-                    current_time = CLOCK.media_seek_pts + elapsed_time
+                    # Audio chunks are already timestamped as elapsed time, no need to add seek offset
+                    current_time = elapsed_time
                 else:
                     # Fallback if clock not available - use old method
                     current_time = self.start_time + self.audio_position
@@ -539,7 +568,9 @@ class VideoSource:
                     with sf.SoundFile(audio_file) as f:
                         sample_rate = f.samplerate
                         # Calculate the start sample from the beginning of the file
-                        start_sample = int(current_time * sample_rate)
+                        # Add seek offset to read from correct position in audio file
+                        file_time = CLOCK.media_seek_pts + current_time if CLOCK.is_initialized() else current_time
+                        start_sample = int(file_time * sample_rate)
                         chunk_samples = int(chunk_size * sample_rate)
                         
                         # Don't try to read before the start or past the end of the file
@@ -623,8 +654,9 @@ class VideoSource:
             self.logger.info("Stopping video source...")
             
             try:
-                # Signal threads to stop
+                # Signal threads to stop first
                 self.is_running = False
+                self._stop_event.set()
                 self._shutdown_event.set()
                 
                 # Stop audio if playing
@@ -635,18 +667,28 @@ class VideoSource:
                 if qsize > 0:
                     self.logger.debug(f"Clearing frame queue with {qsize} pending frames")
                 
-                # Wait for threads to finish
+                # Wait for capture thread to finish first (most important to avoid "not open" errors)
+                if hasattr(self, '_capture_thread') and self._capture_thread and self._capture_thread.is_alive():
+                    self.logger.debug("Waiting for capture thread to finish...")
+                    self._capture_thread.join(timeout=2.0)
+                    if self._capture_thread.is_alive():
+                        self.logger.warning("Capture thread did not stop gracefully within 2 seconds")
+                
+                # Wait for audio thread to finish
                 if hasattr(self, 'audio_thread') and self.audio_thread and self.audio_thread.is_alive():
                     self.logger.debug("Waiting for audio thread to finish...")
                     self.audio_thread.join(timeout=1.0)
                     if self.audio_thread.is_alive():
                         self.logger.warning("Audio thread did not stop gracefully")
                 
-                # Release video capture
+                # Release video capture only after threads have stopped
                 if hasattr(self, '_cap') and self._cap is not None:
                     try:
-                        self._cap.release()
-                        self.logger.debug("Video capture released")
+                        if self._cap.isOpened():
+                            self._cap.release()
+                            self.logger.debug("Video capture released")
+                        else:
+                            self.logger.debug("Video capture was already closed")
                     except Exception as e:
                         self.logger.error(f"Error releasing video capture: {e}")
                 

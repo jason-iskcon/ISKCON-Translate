@@ -116,8 +116,14 @@ def main(video_file=None):
             # Using video-relative timestamps (0 = start of video)
             logger.info(f"[DEBUG] Video start time: {video_source.playback_start_time}")
             
-            # Signal video source that warm-up is complete
-            video_source.warm_up_complete.set()
+            # Join the warm-up barrier (main thread is 3rd participant)
+            logger.info("Main thread joining warm-up barrier...")
+            try:
+                video_source.warm_up_barrier.wait()
+                logger.info("Main thread passed warm-up barrier")
+            except threading.BrokenBarrierError:
+                logger.error("Warm-up barrier was broken, falling back to event-based sync")
+                video_source.warm_up_complete.set()
 
             # Set the wall-clock start time now that warm-up is complete
             if CLOCK.start_wall_time is None:
