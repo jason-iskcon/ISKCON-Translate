@@ -153,27 +153,28 @@ class VideoRunner:
             if not text:
                 return
                 
-            start_time = transcription['timestamp']
-            end_time = transcription.get('end_time', start_time + 3.0)  # Default 3s duration
+            start_time = transcription['start']
+            end_time = transcription.get('end', start_time + 3.0)  # Default 3s duration
             duration = end_time - start_time
             
-            # Timestamps are now elapsed-time relative (0-N seconds since playback started)
-            # Use directly for caption overlay without conversion
-            rel_start = start_time
-            rel_end = end_time
+            # Convert absolute timestamps to relative timestamps (subtract video seek offset)
+            # The transcription timestamps include the video seek offset, but we need relative times
+            media_seek_offset = CLOCK.media_seek_pts if CLOCK.media_seek_pts else 0.0
+            rel_start = start_time - media_seek_offset
+            rel_end = end_time - media_seek_offset
             
             # Track latest audio time for heartbeat calculation
             self._latest_audio_rel = rel_start
             
-            # Get current elapsed time for validation using singleton clock
-            current_elapsed = CLOCK.get_elapsed_time()
+            # Get current video relative time for validation using singleton clock
+            current_video_time = CLOCK.get_video_relative_time()
             logger.info(f"[TRANSCRIPTION] Received: '{text}' at rel_start={rel_start:.2f}s")
-            logger.info(f"[TIMING] Caption timing: rel_start={rel_start:.2f}s, current_elapsed={current_elapsed:.2f}s")
+            logger.info(f"[TIMING] Caption timing: rel_start={rel_start:.2f}s, current_video_time={current_video_time:.2f}s")
             
-            # Validate the timestamp is within reasonable bounds
-            time_diff = abs(rel_start - current_elapsed)
-            if time_diff > 15.0:
-                logger.warning(f"[TIMING] Caption timing mismatch ({time_diff:.2f}s difference), dropping")
+            # Validate the timestamp is within reasonable bounds (allow captions from recent past and near future)
+            time_diff = rel_start - current_video_time
+            if time_diff < -30.0 or time_diff > 60.0:  # Allow 30s past, 60s future
+                logger.warning(f"[TIMING] Caption timing out of bounds ({time_diff:.2f}s difference), dropping")
                 return
             
             # Add the caption with elapsed-time relative timestamps (no conversion needed)

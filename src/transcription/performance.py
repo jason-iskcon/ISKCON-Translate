@@ -8,6 +8,7 @@ and diagnostic logging for the transcription engine.
 import time
 import psutil
 import threading
+import json
 from typing import Optional, Dict, Any
 from collections import deque
 
@@ -32,8 +33,11 @@ class PerformanceMonitor:
     
     def __init__(self):
         self.last_perf_log = 0
+        self.last_json_heartbeat = 0
         self.rate_limit_tracker = {}
         self.process = psutil.Process()
+        self.inference_failures = deque(maxlen=60)  # Track failures for last minute
+        self.json_heartbeat_interval = 60.0  # JSON heartbeat every minute
         
     def log_system_performance(self, audio_queue, result_queue, processed_chunks: int,
                              avg_time: float, device: str, drops_last_minute: deque,
@@ -90,6 +94,25 @@ class PerformanceMonitor:
             
             # Auto-spawn worker logic for CPU
             self._check_auto_spawn_workers(device, audio_qsize, worker_threads, current_time)
+            
+            # JSON heartbeat logging for structured monitoring
+            if current_time - self.last_json_heartbeat >= self.json_heartbeat_interval:
+                inference_failures_per_min = self.get_inference_failures_per_minute()
+                heartbeat_data = {
+                    "timestamp": current_time,
+                    "device": device,
+                    "proc_avg": round(avg_time, 3),
+                    "inference_failures_per_min": inference_failures_per_min,
+                    "audio_queue": f"{audio_qsize}/{audio_queue.maxsize}",
+                    "result_queue": result_qsize,
+                    "processed_chunks": processed_chunks,
+                    "drops_per_min": drops_per_min,
+                    "memory_mb": round(mem_mb, 1),
+                    "cpu_percent": cpu_percent,
+                    "worker_count": len(worker_threads)
+                }
+                logger.info(f"HEARTBEAT: {json.dumps(heartbeat_data)}")
+                self.last_json_heartbeat = current_time
             
             self.last_perf_log = current_time
     
@@ -150,6 +173,31 @@ class PerformanceMonitor:
             # Queue back to normal, reset timer
             if hasattr(self, '_high_queue_start_time'):
                 delattr(self, '_high_queue_start_time')
+
+    def record_inference_failure(self, failure_type: str = "general") -> None:
+        """Record an inference failure for tracking.
+        
+        Args:
+            failure_type: Type of failure (e.g., 'cuda_runtime', 'general', 'oom')
+        """
+        current_time = time.time()
+        self.inference_failures.append({
+            'timestamp': current_time,
+            'type': failure_type
+        })
+        
+    def get_inference_failures_per_minute(self) -> int:
+        """Calculate inference failures in the last minute.
+        
+        Returns:
+            int: Number of inference failures in the last minute
+        """
+        current_time = time.time()
+        one_minute_ago = current_time - 60.0
+        
+        # Count failures in the last minute
+        recent_failures = [f for f in self.inference_failures if f['timestamp'] >= one_minute_ago]
+        return len(recent_failures)
 
 
 def log_worker_performance(worker_name: str, processing_time: float, 

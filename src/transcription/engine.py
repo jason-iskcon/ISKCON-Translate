@@ -132,6 +132,43 @@ class TranscriptionEngine:
         
         logger.info(f"TranscriptionEngine initialized with {self.n_workers} workers on {self.device.upper()}")
 
+    def _switch_to_cpu_model(self) -> bool:
+        """Switch from GPU to CPU model when CUDA runtime fails.
+        
+        Returns:
+            bool: True if switch was successful, False otherwise
+        """
+        if self.device == "cpu":
+            logger.debug("Already using CPU model, no switch needed")
+            return True
+            
+        try:
+            logger.warning("🔄 Switching to CPU model due to CUDA runtime error...")
+            
+            # Initialize new CPU model
+            new_model, new_device, new_compute_type = init_whisper_model(
+                self.model_size, "cpu", "int8"
+            )
+            
+            # Update model and device settings
+            self.model = new_model
+            self.device = new_device
+            self.compute_type = new_compute_type
+            
+            # Update parameters to CPU-specific ones
+            params = CPU_PARAMS
+            self.chunk_size = params['chunk_size']
+            self.overlap = params['overlap']
+            self.n_workers = params['n_workers']
+            
+            logger.warning(f"✅ Successfully switched to CPU model (chunk_size={self.chunk_size}s, "
+                         f"overlap={self.overlap}s, n_workers={self.n_workers})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to switch to CPU model: {e}", exc_info=True)
+            return False
+
     def start_transcription(self) -> bool:
         """Start the transcription engine.
         
@@ -264,7 +301,8 @@ class TranscriptionEngine:
                 drops_last_minute=self.drops_last_minute,
                 drop_stats_lock=self.drop_stats_lock,
                 worker_threads=self.worker_threads,
-                device=self.device
+                device=self.device,
+                engine_instance=self  # Pass self for CPU fallback
             )
         except Exception as e:
             logger.error(f"Worker thread failed: {e}", exc_info=True)

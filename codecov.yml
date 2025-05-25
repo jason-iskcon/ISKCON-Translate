@@ -1,0 +1,73 @@
+codecov:
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+  
+  status:
+    project:
+      default:
+        target: 85%
+        threshold: 5%
+        informational: false
+      core:
+        target: 90%
+        paths:
+          - "src/main.py"
+          - "src/core/"
+        informational: false
+      transcription:
+        target: 85%
+        paths:
+          - "src/transcription/"
+        informational: false
+      caption_overlay:
+        target: 85%
+        paths:
+          - "src/caption_overlay/"
+        informational: false
+      utils:
+        target: 80%
+        paths:
+          - "src/text_utils.py"
+          - "src/logging_utils.py"
+          - "src/clock.py"
+        informational: false
+    
+    patch:
+      default:
+        target: 80%
+        threshold: 10%
+        informational: false
+
+  ignore:
+    - "tests/"
+    - "docs/"
+    - "scripts/"
+    - "setup.py"
+    - "src/**/__pycache__"
+    - "src/**/test_*.py"
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+  
+  branches:
+    - main
+    - develop
+
+flags:
+  unittests:
+    paths:
+      - src/
+    carryforward: true
+  
+github_checks:
+  annotations: true 

@@ -35,7 +35,7 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
                            sampling_rate: int, warm_up_mode_flag: threading.Event,
                            drops_last_minute: collections.deque,
                            drop_stats_lock: threading.Lock,
-                           worker_threads: list, device: str) -> None:
+                           worker_threads: list, device: str, engine_instance: Any = None) -> None:
     """Main transcription worker function.
     
     Args:
@@ -52,6 +52,7 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
         drop_stats_lock: Lock for drop statistics
         worker_threads: List of worker threads
         device: Processing device (cpu/cuda)
+        engine_instance: Optional engine instance
     """
     worker_name = threading.current_thread().name
     logger.info(f"[{worker_name}] Transcription worker started")
@@ -114,13 +115,15 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
                 success = _process_audio_segment(
                     audio_data, timestamp, model, result_queue, 
                     worker_name, sampling_rate, processed_chunks_counter,
-                    avg_time_tracker
+                    avg_time_tracker, engine_instance, performance_monitor
                 )
                 
                 if success:
                     consecutive_failures = 0
                     failure_window.append(0)
                 else:
+                    # Only count as failure if it's not a recoverable CUDA error that was handled
+                    # The _process_audio_segment will return True even for CUDA errors if CPU fallback succeeded
                     consecutive_failures += 1
                     failure_window.append(1)
                     
@@ -148,7 +151,8 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
 def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
                          result_queue: queue.Queue, worker_name: str,
                          sampling_rate: int, processed_chunks_counter: Any,
-                         avg_time_tracker: Any) -> bool:
+                         avg_time_tracker: Any, engine_instance: Any,
+                         performance_monitor: PerformanceMonitor) -> bool:
     """Process a single audio segment.
     
     Args:
@@ -160,9 +164,11 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         sampling_rate: Audio sampling rate
         processed_chunks_counter: Counter for processed chunks
         avg_time_tracker: Tracker for average processing time
+        engine_instance: Optional engine instance
+        performance_monitor: Performance monitoring instance
         
     Returns:
-        bool: True if processing succeeded, False otherwise
+        bool: True if processing succeeded (including after CUDA fallback), False otherwise
     """
     try:
         # Log audio segment details
@@ -173,7 +179,7 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         start_process_time = time.time()
         
         # Transcribe the audio with retry logic
-        segments, info = _transcribe_with_retry(model, audio_data, worker_name)
+        segments, info = _transcribe_with_retry(model, audio_data, worker_name, engine_instance, performance_monitor)
         
         if segments is None:
             return False
@@ -199,16 +205,19 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         
     except Exception as e:
         logger.error(f"[{worker_name}] Error processing audio segment: {e}", exc_info=True)
+        performance_monitor.record_inference_failure("general")
         return False
 
 
-def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str):
+def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, engine_instance: Any, performance_monitor: PerformanceMonitor):
     """Transcribe audio with retry logic for transient errors.
     
     Args:
         model: WhisperModel for transcription
         audio_data: Audio data to transcribe
         worker_name: Name of the worker thread
+        engine_instance: Optional engine instance
+        performance_monitor: Performance monitoring instance
         
     Returns:
         Tuple of (segments, info) or (None, None) on failure
@@ -226,13 +235,39 @@ def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str):
             )
             segments = list(segments)  # Convert generator to list to catch errors early
             return segments, info
-            
+                
         except RuntimeError as e:
             last_error = e
-            if "CUDA out of memory" in str(e) and attempt < MAX_RETRIES - 1:
+            error_str = str(e).lower()
+            
+            # Handle CUDA out of memory errors
+            if "cuda out of memory" in error_str and attempt < MAX_RETRIES - 1:
                 logger.warning(f"[{worker_name}] CUDA OOM on attempt {attempt + 1}, retrying...")
+                performance_monitor.record_inference_failure("cuda_oom")
                 time.sleep(RETRY_BACKOFF_BASE * (attempt + 1))  # Exponential backoff
                 continue
+                
+            # Handle cuBLAS runtime errors - CUDA→CPU fallback
+            if "cublas" in error_str or "cublas64_12.dll" in error_str:
+                logger.error(f"[{worker_name}] CUDA runtime missing (cuBLAS), switching to CPU: {e}")
+                performance_monitor.record_inference_failure("cuda_runtime")
+                
+                # Attempt CPU fallback if engine instance is available
+                if engine_instance and hasattr(engine_instance, '_switch_to_cpu_model'):
+                    if engine_instance._switch_to_cpu_model():
+                        # Switch successful, update model reference and retry
+                        model = engine_instance.model
+                        logger.info(f"[{worker_name}] Continuing with CPU model")
+                        continue  # Retry with CPU model
+                    else:
+                        logger.error(f"[{worker_name}] Failed to switch to CPU model")
+                        return None, None
+                else:
+                    logger.error(f"[{worker_name}] No engine instance available for CPU fallback")
+                    return None, None
+                
+            # Record other runtime errors
+            performance_monitor.record_inference_failure("runtime_error")
             raise  # Re-raise if not a retryable error or out of retries
     
     # This block runs if the loop completes without breaking
