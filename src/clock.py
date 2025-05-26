@@ -19,13 +19,18 @@ class PlaybackClock:
         
         Args:
             seek_pts: Media timestamp where playback starts (in seconds)
+            
+        Returns:
+            bool: True if initialized, False if already initialized
         """
-        if not self.video_source_created or self.media_seek_pts == 0.0:
+        if not self.video_source_created:
             self.media_seek_pts = seek_pts
             self.video_source_created = True
             logger.info(f"🔧 Singleton clock initialized: media_seek_pts={seek_pts:.2f}s")
+            return True
         else:
-            logger.warning(f"🔧 Attempted to re-initialize singleton clock (seek_pts={seek_pts:.2f}s), ignoring")
+            logger.info(f"🔧 Singleton clock already initialized: media_seek_pts={self.media_seek_pts:.2f}s")
+            return False
         
     def get_video_relative_time(self) -> float:
         """Get current video time relative to seek position.

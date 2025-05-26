@@ -2,20 +2,29 @@
 import time
 import cv2
 import queue
-from ..logging_utils import get_logger
+import threading
+from logging_utils import get_logger
 
 # Import singleton clock
 try:
-    from ..clock import CLOCK
+    from clock import CLOCK
 except ImportError:
     from clock import CLOCK
+
+# Import translation and comparison modules
+try:
+    from ..translation.translator import Translator
+    from ..caption_overlay.comparison import ComparisonRenderer
+except ImportError:
+    from src.translation.translator import Translator
+    from src.caption_overlay.comparison import ComparisonRenderer
 
 logger = get_logger(__name__)
 
 class VideoRunner:
     """Handles the main video playback and synchronization loop."""
     
-    def __init__(self, video_source, transcriber, caption_overlay, window_name="Video with Captions"):
+    def __init__(self, video_source, transcriber, caption_overlay, window_name="Video with Captions", comparison_mode=False, youtube_url=None, headless=False):
         """Initialize the video runner.
         
         Args:
@@ -23,6 +32,9 @@ class VideoRunner:
             transcriber: TranscriptionEngine instance for caption processing
             caption_overlay: CaptionOverlay instance for displaying captions
             window_name: Name of the display window
+            comparison_mode: Whether to show side-by-side comparison
+            youtube_url: Optional YouTube URL for comparison
+            headless: Whether to run in headless mode (no window display)
         """
         self.video_source = video_source
         self.transcriber = transcriber
@@ -31,6 +43,15 @@ class VideoRunner:
         self.frame_count = 0
         self.paused = False
         self.running = False
+        self.comparison_mode = comparison_mode
+        self.youtube_url = youtube_url
+        self.headless = headless
+        
+        # Initialize translator and comparison renderer if in comparison mode
+        if comparison_mode:
+            self.translator = Translator()
+            self.comparison_renderer = ComparisonRenderer()
+            logger.info("Initialized comparison mode with translator and comparison renderer")
         
         # Get video information
         self.width, self.height, self.fps = video_source.get_video_info()
@@ -38,19 +59,22 @@ class VideoRunner:
         self.frame_buffer = []
         self.max_buffer_size = 30  # Increased buffer size for smoother playback
         
-        # Initialize timing variables
-        self.next_frame_time = time.time()
-        self.last_frame_time = time.time()
+        # Initialize timing variables with high precision
+        self.next_frame_time = time.perf_counter()
+        self.last_frame_time = time.perf_counter()
         self.current_video_time = 0.0
+        self.frame_times = []  # For frame timing analysis
+        self.audio_sync_threshold = 0.033  # 33ms threshold for audio sync
         
         # For rate-limiting certain logs
         self._last_no_transcription_log_time = 0
         self._frames_since_last_slow_render_log = 0
         self._last_stats_log_time = 0  # For 5-second heartbeat stats
         
-        # Create display window
-        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.window_name, self.width, self.height)
+        # Create display window only if not in headless mode
+        if not self.headless:
+            cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(self.window_name, self.width, self.height)
         
         logger.info(f"Video runner initialized: {self.width}x{self.height} @ {self.fps}fps")
     
@@ -66,15 +90,29 @@ class VideoRunner:
         
         logger.info(f"Starting playback with {len(self.frame_buffer)} frames in buffer")
     
-    def process_frame(self, frame_data):
-        """Process a single frame and apply captions.
+    def _sync_with_audio(self, frame_time: float) -> float:
+        """Synchronize video frame time with audio playback.
         
         Args:
-            frame_data: Tuple of (frame, timestamp)
+            frame_time: Current frame timestamp
             
         Returns:
-            Frame with captions applied
+            Adjusted frame time
         """
+        with self.video_source.audio_position_lock:
+            audio_time = self.video_source.audio_position
+            
+        if audio_time > 0 and self.video_source.audio_playing:
+            time_diff = frame_time - audio_time
+            # Only adjust if the difference is significant
+            if abs(time_diff) > self.audio_sync_threshold:
+                # Use audio time directly for better sync
+                logger.debug(f"Audio sync adjustment: {time_diff:.3f}s")
+                return audio_time
+        return frame_time
+    
+    def _process_frame(self, frame_data):
+        """Process a single frame and apply captions."""
         frame, frame_timestamp = frame_data
         
         # Get current audio position for synchronization
@@ -82,52 +120,35 @@ class VideoRunner:
             current_audio_time = self.video_source.audio_position
         
         # Use audio time for synchronization if available
-        self.current_video_time = current_audio_time if self.video_source.audio_playing else frame_timestamp
-        self.frame_count += 1
+        self.current_video_time = self._sync_with_audio(current_audio_time if self.video_source.audio_playing else frame_timestamp)
         
-        # Calculate time delta and next frame time
-        now = time.time()
+        # Calculate time delta and next frame time using high-precision timer
+        now = time.perf_counter()
         frame_delay = now - self.last_frame_time
         self.last_frame_time = now
-        self.next_frame_time = now + max(0, self.target_frame_time - frame_delay)
         
-        # Get any available transcriptions
-        self._process_transcriptions()
+        # Simple frame timing without complex adjustments
+        self.next_frame_time = now + self.target_frame_time
         
-        # Apply captions to frame using relative time and frame count
-        frame_copy = frame.copy()
+        # Track frame timing for analysis (keep smaller buffer)
+        self.frame_times.append(frame_delay)
+        if len(self.frame_times) > 30:  # Keep last 30 frames only
+            self.frame_times.pop(0)
         
-        # Debug log for playback_start_time
-        if self.frame_count == 1:
-            logger.info(f"🔧 FIRST FRAME: playback_start_time = {self.video_source.playback_start_time}")
+        # Get any available transcriptions (less frequently)
+        if self.frame_count % 3 == 0:  # Only check every 3rd frame
+            self._process_transcriptions()
         
-        # Calculate relative time with safeguard
-        if self.video_source.playback_start_time > 0:
-            # Use singleton clock for consistent timing
-            relative_time = CLOCK.get_video_relative_time()
-            
-            # Debug log for seek-aware timing
-            if self.frame_count == 1:
-                elapsed_time = CLOCK.get_elapsed_time()
-                logger.info(f"🔧 SINGLETON TIMING: media_seek_pts={CLOCK.media_seek_pts:.2f}s, elapsed={elapsed_time:.2f}s, video_rel_time={relative_time:.2f}s")
+        # Calculate relative time with seek offset
+        relative_time = self.current_video_time - self.video_source.start_time
+        
+        # Process frame based on mode
+        if self.comparison_mode:
+            frame = self._process_comparison_frame(frame, relative_time)
         else:
-            # Fallback: initialize playback_start_time if it's still 0
-            logger.warning("playback_start_time is 0, using singleton clock fallback")
-            if CLOCK.is_initialized():
-                relative_time = CLOCK.get_video_relative_time()
-            else:
-                relative_time = 0.0
+            frame = self._process_normal_frame(frame, relative_time)
         
-        frame_with_captions = self.caption_overlay.overlay_captions(
-            frame=frame_copy,
-            current_time=relative_time,
-            frame_count=self.frame_count
-        )
-        
-        # Add debug information
-        self._add_debug_info(frame_with_captions, relative_time)
-        
-        return frame_with_captions
+        return frame
     
     def _process_transcriptions(self):
         """Process any available transcriptions from the queue."""
@@ -157,17 +178,15 @@ class VideoRunner:
             end_time = transcription.get('end', start_time + 3.0)  # Default 3s duration
             duration = end_time - start_time
             
-            # Convert absolute timestamps to relative timestamps (subtract video seek offset)
-            # The transcription timestamps include the video seek offset, but we need relative times
-            media_seek_offset = CLOCK.media_seek_pts if CLOCK.media_seek_pts else 0.0
-            rel_start = start_time - media_seek_offset
-            rel_end = end_time - media_seek_offset
+            # Calculate relative timestamps by subtracting seek offset
+            rel_start = start_time - self.video_source.start_time
+            rel_end = end_time - self.video_source.start_time
             
             # Track latest audio time for heartbeat calculation
             self._latest_audio_rel = rel_start
             
-            # Get current video relative time for validation using singleton clock
-            current_video_time = CLOCK.get_video_relative_time()
+            # Get current video relative time for validation
+            current_video_time = self.current_video_time - self.video_source.start_time
             logger.info(f"[TRANSCRIPTION] Received: '{text}' at rel_start={rel_start:.2f}s")
             logger.info(f"[TIMING] Caption timing: rel_start={rel_start:.2f}s, current_video_time={current_video_time:.2f}s")
             
@@ -177,21 +196,16 @@ class VideoRunner:
                 logger.warning(f"[TIMING] Caption timing out of bounds ({time_diff:.2f}s difference), dropping")
                 return
             
-            # Add the caption with elapsed-time relative timestamps (no conversion needed)
+            # Add the caption with relative timestamps
             logger.info(f"[CAPTION] Adding: {text!r} at rel_start={rel_start:.2f}s for {duration:.1f}s")
             try:
-                self.caption_overlay.add_caption(
-                    text,
-                    timestamp=rel_start,  # Use relative time directly
-                    duration=duration,
-                    is_absolute=False  # Using relative timestamps
-                )
+                self.caption_overlay.add_caption(text, rel_start, rel_end)
                 logger.info("[CAPTION] Added successfully")
             except Exception as e:
-                logger.error(f"Error adding caption: {e}", exc_info=True)
+                logger.error(f"Error adding caption: {e}")
                 
         except Exception as e:
-            logger.error(f"Error processing transcription: {e}", exc_info=True)
+            logger.error(f"Error handling transcription: {e}")
     
     def _add_debug_info(self, frame, relative_time):
         """Add debug information to the frame."""
@@ -246,146 +260,134 @@ class VideoRunner:
         else:
             logger.info("\n=== NO CAPTIONS LOADED ===")
     
-    def run(self):
-        """Run the main video playback loop."""
-        self.running = True
-        logger.info("Starting video playback loop")
-        frame_render_times = []
-        max_render_time_samples = 100  # Sample last 100 frames for avg render time
+    def _process_comparison_frame(self, frame, relative_time):
+        """Process frame in comparison mode.
         
+        Args:
+            frame: Video frame to process
+            relative_time: Current relative time
+            
+        Returns:
+            Processed frame with side-by-side captions
+        """
+        # Get active captions
+        active_captions = self.caption_overlay.get_active_captions(relative_time)
+        
+        if not active_captions:
+            return frame
+        
+        # Get the most recent caption
+        current_caption = active_captions[-1]
+        
+        # Get both YouTube and Parakletos captions
+        youtube_text, parakletos_text = self.translator.translate(
+            current_caption['text'],
+            timestamp=relative_time,
+            video_url=self.youtube_url
+        )
+        
+        # Create caption dictionaries for comparison
+        youtube_caption = {
+            'text': youtube_text,
+            'start_time': current_caption['start_time'],
+            'end_time': current_caption['end_time']
+        }
+        
+        parakletos_caption = {
+            'text': parakletos_text,
+            'start_time': current_caption['start_time'],
+            'end_time': current_caption['end_time']
+        }
+        
+        # Render side-by-side comparison
+        return self.comparison_renderer.render_comparison(
+            frame,
+            youtube_caption,
+            parakletos_caption,
+            relative_time
+        )
+    
+    def _process_normal_frame(self, frame, relative_time):
+        """Process frame in normal mode.
+        
+        Args:
+            frame: Video frame to process
+            relative_time: Current relative time
+            
+        Returns:
+            Processed frame with captions
+        """
+        return self.caption_overlay.overlay_captions(
+            frame=frame,
+            current_time=relative_time,
+            frame_count=self.frame_count
+        )
+    
+    def _log_timing_stats(self):
+        """Log detailed timing statistics."""
+        if not self.frame_times:
+            return
+            
+        avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+        max_frame_time = max(self.frame_times)
+        min_frame_time = min(self.frame_times)
+        
+        logger.info("\n=== TIMING STATS ===")
+        logger.info(f"Average frame time: {avg_frame_time*1000:.2f}ms")
+        logger.info(f"Min frame time: {min_frame_time*1000:.2f}ms")
+        logger.info(f"Max frame time: {max_frame_time*1000:.2f}ms")
+        logger.info(f"Target frame time: {self.target_frame_time*1000:.2f}ms")
+        
+        # Log audio sync status
+        with self.video_source.audio_position_lock:
+            audio_time = self.video_source.audio_position
+        logger.info(f"Current audio time: {audio_time:.3f}s")
+        logger.info(f"Current video time: {self.current_video_time:.3f}s")
+        logger.info(f"Sync difference: {abs(audio_time - self.current_video_time)*1000:.2f}ms")
+    
+    def run(self):
+        """Run the main video playback and synchronization loop."""
         try:
-            while self.running and self.video_source.is_running:
-                loop_start_time = time.time()
+            # Initialize timing variables
+            start_time = time.perf_counter()
+            frame_count = 0
+            target_fps = self.video_source.fps
+            frame_duration = 1.0 / target_fps
+            
+            while True:
+                current_time = time.perf_counter()
+                elapsed_time = current_time - start_time
+                expected_frame = int(elapsed_time * target_fps)
                 
-                # Handle pause state
-                if self.paused:
-                    time.sleep(0.1)
-                    continue
-                
-                # Get frame from buffer or video source
-                frame_data = None
-                if self.frame_buffer:
-                    frame_data = self.frame_buffer.pop(0)
-                elif self.video_source.is_running:
+                # Skip frames if we're behind
+                if frame_count < expected_frame:
+                    # Get the next frame
                     frame_data = self.video_source.get_frame()
-                
-                if frame_data:
-                    processed_frame = self.process_frame(frame_data)
-                    cv2.imshow(self.window_name, processed_frame)
+                    if frame_data is None:
+                        break
                     
-                    # Maintain frame buffer
-                    if len(self.frame_buffer) < self.max_buffer_size and self.video_source.is_running:
-                        new_frame = self.video_source.get_frame()
-                        if new_frame:
-                            self.frame_buffer.append(new_frame)
-                            
-                    # Frame rendering time calculation
-                    render_duration = time.time() - loop_start_time
-                    frame_render_times.append(render_duration)
-                    if len(frame_render_times) > max_render_time_samples:
-                        frame_render_times.pop(0)
+                    # Process the frame
+                    frame = self._process_frame(frame_data)
                     
-                    avg_render_time = sum(frame_render_times) / len(frame_render_times) if frame_render_times else 0
+                    # Display the frame only if not in headless mode
+                    if not self.headless:
+                        cv2.imshow(self.window_name, frame)
                     
-                    # Log slow frame rendering
-                    if render_duration > 0.033:  # Threshold to 33ms (approx 30 FPS)
-                        self._frames_since_last_slow_render_log += 1
-                        if self._frames_since_last_slow_render_log >= 100:
-                            logger.warning(
-                                f"Slow frame rendering: {render_duration*1000:.0f}ms "
-                                f"(avg: {avg_render_time*1000:.0f}ms, target: {self.target_frame_time*1000:.0f}ms)"
-                            )
-                            self._frames_since_last_slow_render_log = 0
-                    else:
-                        # Reset counter if rendering is fast enough
-                        self._frames_since_last_slow_render_log = 0
+                    frame_count += 1
+                    self.frame_count = frame_count
+                    
+                    # Log timing info less frequently
+                    if frame_count % 90 == 0:  # Every 3 seconds at 30fps
+                        self._log_timing_stats()
+                    
+                    # Handle key press only if not in headless mode
+                    if not self.headless and cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
                 else:
-                    # No frame available, might be end of video or buffering issue
-                    logger.debug("No frame available from video source.")
-                    if not self.video_source.is_running and not self.frame_buffer:
-                        logger.info("End of video or video source stopped.")
-                        break # Exit loop if source stopped and buffer empty
-                    time.sleep(0.005) # Brief pause if no frame but still running
-
-                # Handle keyboard input
-                key = cv2.waitKey(1) & 0xFF
-                if key != 255:  # If a key was pressed
-                    self._handle_key_press(key)
-                
-                # Adaptive sleep to reduce CPU usage
-                sleep_time = max(0, self.next_frame_time - time.time() - 0.001)
-                if sleep_time > 0.001:
-                    time.sleep(min(0.01, sleep_time))
-                
-                # Log total loop iteration time periodically
-                loop_duration = time.time() - loop_start_time
-                if self.frame_count % 30 == 0: # Log every second at 30fps
-                    logger.debug(f"[TIMING] VideoRunner.run loop iteration took {loop_duration*1000:.2f}ms for frame {self.frame_count}")
-                
-                # 5-second heartbeat stats logging
-                current_time = time.time()
-                if current_time - self._last_stats_log_time >= 2.0:  # Reduced to 2s for testing
-                    # Calculate current FPS
-                    elapsed_time = current_time - self._last_stats_log_time if self._last_stats_log_time > 0 else 2.0
-                    frames_in_period = 30 * 2 if self._last_stats_log_time > 0 else self.frame_count  # Rough estimate
-                    current_fps = frames_in_period / elapsed_time if elapsed_time > 0 else 0
-                    
-                    # Get queue sizes
-                    frame_q_size = self.video_source.frames_queue.qsize()
-                    frame_q_max = self.video_source.frames_queue.maxsize
-                    audio_q_size = self.transcriber.audio_queue.qsize()
-                    audio_q_max = self.transcriber.audio_queue.maxsize
-                    
-                    # Calculate A/V drift - compare like-with-like elapsed times
-                    # Video time: elapsed since playback start using singleton clock
-                    video_rel_time = CLOCK.get_elapsed_time()
-                    
-                    # Audio time: convert transcription timestamp to elapsed time for proper comparison
-                    # _latest_audio_rel contains media-relative timestamps, need to convert to elapsed
-                    if hasattr(self, '_latest_audio_rel') and self._latest_audio_rel >= 0:
-                        # Convert audio media-relative time to elapsed time
-                        # Since transcriptions are now using elapsed time directly, use as-is
-                        audio_rel_time = self._latest_audio_rel
-                    else:
-                        # No valid audio data yet, assume audio matches video to avoid scary drift
-                        audio_rel_time = video_rel_time
-                        if not hasattr(self, '_logged_audio_init'):
-                            logger.debug("[HEARTBEAT] No audio transcriptions yet, using video_rel for drift calculation")
-                            self._logged_audio_init = True
-                    
-                    # Calculate drift: positive means audio ahead of video, negative means video ahead
-                    av_drift = audio_rel_time - video_rel_time
-                    # Clamp to reasonable values to avoid display issues
-                    av_drift = max(-999.0, min(999.0, av_drift))
-                    
-                    # Get consecutive drops from video source
-                    consecutive_drops = getattr(self.video_source, '_consecutive_drops', 0)
-                    
-                    # Enhanced heartbeat with corrected drift calculation
-                    logger.info(f"📊 [HB] fps={current_fps:.1f} | frame_q={frame_q_size}/{frame_q_max} | audio_q={audio_q_size}/{audio_q_max} | v_rel={video_rel_time:.1f} | a_rel={audio_rel_time:.1f} | drift={av_drift:+.2f}s | drops={consecutive_drops}")
-                    self._last_stats_log_time = current_time
-                    
-        except KeyboardInterrupt:
-            logger.info("Playback interrupted by user")
-        except Exception as e:
-            logger.error(f"Error in video playback: {e}", exc_info=True)
+                    # Sleep for a short time to avoid busy waiting
+                    time.sleep(0.001)  # 1ms sleep
+            
         finally:
-            self.cleanup()
-    
-    def _handle_key_press(self, key):
-        """Handle keyboard input."""
-        if key == ord('q') or key == 27:  # 'q' or ESC
-            logger.info("Quit requested by user")
-            self.running = False
-        elif key == ord('p') or key == 32:  # 'p' or SPACE
-            self.paused = not self.paused
-            status = "paused" if self.paused else "resumed"
-            logger.info(f"Playback {status}")
-            if not self.paused:
-                self.next_frame_time = time.time()
-    
-    def cleanup(self):
-        """Clean up resources."""
-        logger.info(f"Playback ended after {self.frame_count} frames")
-        cv2.destroyAllWindows()
-        self.running = False
+            if not self.headless:
+                cv2.destroyAllWindows()
+            self.video_source.release()

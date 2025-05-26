@@ -315,17 +315,25 @@ def _queue_transcription_results(segments: list, result_queue: queue.Queue,
     Args:
         segments: Transcription segments
         result_queue: Queue to put results
-        timestamp: Audio timestamp
+        timestamp: Audio timestamp (absolute from audio file)
         processing_time: Processing time
         worker_name: Name of the worker thread
     """
     try:
+        # Import here to avoid circular imports
+        from clock import CLOCK
+        
+        # timestamp is already relative to video start (elapsed time since playback began)
+        # No conversion needed - use directly
+        relative_timestamp = timestamp
+        
         for segment in segments:
-            # Create transcription result
+            # Create transcription result with relative timestamps
+            # segment.start/end are relative to the audio chunk, relative_timestamp is chunk start time
             result = {
                 'text': segment.text.strip(),
-                'start': segment.start + timestamp,  # Add offset for absolute timing
-                'end': segment.end + timestamp,
+                'start': segment.start + relative_timestamp,  # segment offset + chunk start time
+                'end': segment.end + relative_timestamp,
                 'confidence': getattr(segment, 'avg_logprob', 0.0),
                 'words': [],
                 'processing_time': processing_time,
@@ -337,8 +345,8 @@ def _queue_transcription_results(segments: list, result_queue: queue.Queue,
                 result['words'] = [
                     {
                         'word': word.word,
-                        'start': word.start + timestamp,
-                        'end': word.end + timestamp,
+                        'start': word.start + relative_timestamp,
+                        'end': word.end + relative_timestamp,
                         'probability': word.probability
                     }
                     for word in segment.words

@@ -2,7 +2,13 @@
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from ..logging_utils import get_logger, TRACE, setup_logging
+from logging_utils import get_logger, TRACE, setup_logging
+from video_source import VideoSource
+from transcription import TranscriptionEngine
+from caption_overlay import CaptionOverlay
+
+# Get logger instance
+logger = get_logger(__name__)
 
 def ensure_logs_dir():
     """Ensure the logs directory exists.
@@ -17,25 +23,77 @@ def ensure_logs_dir():
     os.makedirs(logs_dir, exist_ok=True)
     return logs_dir
 
-def initialize_app(log_level='INFO'):
-    """Initialize the application with logging configuration.
+def initialize_video_source(args):
+    """Initialize the video source.
     
     Args:
-        log_level (str): Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        args: Command line arguments
         
     Returns:
-        tuple: (logs_dir, log_file) paths
+        VideoSource: Initialized video source
     """
-    # Ensure logs directory exists
-    logs_dir = ensure_logs_dir()
-    log_file = os.path.join(logs_dir, 'iskcon_translate.log')
+    try:
+        video_source = VideoSource(args.video_file, start_time=args.seek)
+        logger.info(f"Initialized video source with file: {args.video_file}, start_time: {args.seek}")
+        return video_source
+    except Exception as e:
+        logger.error(f"Error initializing video source: {e}", exc_info=True)
+        raise
+
+def initialize_transcriber():
+    """Initialize the transcription engine.
     
-    # Set up logging with the specified level and log file
-    setup_logging(level=log_level, log_file=log_file)
+    Returns:
+        TranscriptionEngine: Initialized transcription engine
+    """
+    try:
+        transcriber = TranscriptionEngine()
+        logger.info("Initialized transcription engine")
+        return transcriber
+    except Exception as e:
+        logger.error(f"Error initializing transcription engine: {e}", exc_info=True)
+        raise
+
+def initialize_caption_overlay(args):
+    """Initialize the caption overlay.
     
-    # Get logger instance
-    logger = get_logger(__name__)
-    logger.info("Application initialized with log level: %s", log_level)
-    logger.info("Log file: %s", os.path.abspath(log_file))
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        CaptionOverlay: Initialized caption overlay
+    """
+    try:
+        caption_overlay = CaptionOverlay()
+        # Set initial video start time from args.seek
+        caption_overlay.orchestrator.core.set_video_start_time(args.seek)
+        logger.info(f"Initialized caption overlay with start time: {args.seek}")
+        return caption_overlay
+    except Exception as e:
+        logger.error(f"Error initializing caption overlay: {e}", exc_info=True)
+        raise
+
+def initialize_app(args):
+    """Initialize the application with the given arguments.
     
-    return logs_dir, log_file
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        tuple: (video_source, transcriber, caption_overlay)
+    """
+    try:
+        # Setup logging first
+        log_file = os.path.join('logs', 'app.log')
+        setup_logging(level=args.log_level, log_file=log_file)
+        
+        # Initialize components
+        video_source = initialize_video_source(args)
+        transcriber = initialize_transcriber()
+        caption_overlay = initialize_caption_overlay(args)
+        
+        return video_source, transcriber, caption_overlay
+        
+    except Exception as e:
+        logger.error(f"Error initializing application: {e}", exc_info=True)
+        raise

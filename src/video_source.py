@@ -62,8 +62,9 @@ class VideoSource:
         self._shutdown_event = threading.Event()
         self._lock = threading.RLock()
         
-        # Video information
-        self._video_fps = 0
+        # Video information - initialize with default values
+        self._cap = None
+        self._video_fps = 30.0  # Default to 30fps until actual video is opened
         self._frame_count = 0
         
         # Audio playback
@@ -82,9 +83,9 @@ class VideoSource:
         self.audio_position_lock = threading.RLock()
         self.playback_started = threading.Event()
         
-        # Replace single Event with a Barrier for proper 3-way synchronization
-        # Participants: main thread, capture thread, transcription thread
-        self.warm_up_barrier = threading.Barrier(3, action=self._on_warm_up_complete)
+        # Replace single Event with a Barrier for proper 2-way synchronization
+        # Participants: main thread, capture thread
+        self.warm_up_barrier = threading.Barrier(2, action=self._on_warm_up_complete)
         self.warm_up_complete = threading.Event()  # Keep for backward compatibility
         
         self.start_sync_event = threading.Event()  # For exact start synchronization
@@ -157,18 +158,21 @@ class VideoSource:
                     self.logger.log(TRACE, f"Video codec: {codec_str} (0x{codec:08X})")
                 
                 # Set initial frame count based on start_time if specified
+                logger.info(f"🔧 DEBUG: self.start_time = {self.start_time}, condition = {self.start_time > 0}")
                 if self.start_time > 0:
                     self._frame_count = int(self.start_time * self._video_fps)
                     # Seek to the specified start position
                     self._cap.set(cv2.CAP_PROP_POS_FRAMES, self._frame_count)
                     logger.info(f"Seeking video to {self.start_time:.2f}s (frame {self._frame_count})")
                     # Initialize singleton clock with seek position
+                    logger.info(f"🔧 DEBUG: About to call CLOCK.initialize({self.start_time})")
                     if CLOCK.initialize(self.start_time):
                         logger.info(f"🔧 Initialized singleton clock: media_seek_pts={CLOCK.media_seek_pts:.2f}s")
                     else:
                         logger.info(f"🔧 Singleton clock already initialized: media_seek_pts={CLOCK.media_seek_pts:.2f}s")
                 else:
                     # Initialize clock with no seek
+                    logger.info(f"🔧 DEBUG: About to call CLOCK.initialize(0.0) because start_time <= 0")
                     if CLOCK.initialize(0.0):
                         logger.info(f"🔧 Initialized singleton clock: media_seek_pts={CLOCK.media_seek_pts:.2f}s")
                     else:
@@ -176,6 +180,7 @@ class VideoSource:
                 
                 # Set compatibility properties from clock
                 self.media_seek_pts = CLOCK.media_seek_pts
+                self.playback_start_time = time.time()  # Set current time as playback start
                 
                 # Check for existing audio file in cache but don't start playback yet
                 self.audio_file = self._get_audio_file_path()
@@ -195,39 +200,40 @@ class VideoSource:
                 self._capture_thread.daemon = True
                 self._capture_thread.start()
                 
-                # Wait for thread to initialize
+                # Wait for capture thread to start
                 with self._start_cv:
-                    if not self._started:
-                        self._start_cv.wait(5.0)  # 5 second timeout
+                    while not self._started:
+                        self._start_cv.wait()
                 
-                if not self._started:
-                    raise RuntimeError("Failed to start video capture thread")
+                # Start audio thread if we have an audio file
+                if self.audio_file:
+                    logger.info("Starting audio playback thread")
+                    self.audio_playing = True  # Set audio playing flag
+                    self.audio_thread = threading.Thread(
+                        target=self._play_audio,
+                        args=(self.audio_file,),
+                        name="AudioPlaybackThread"
+                    )
+                    self.audio_thread.daemon = True
+                    self.audio_thread.start()
                 
-                # Don't start audio thread yet - it will be started after warm-up
-                has_audio = bool(self.audio_file)
-                if not has_audio:
-                    logger.warning("No audio file available - video timing will be used")
-                
-                # Prebuffering is now handled by _capture_frames after warm_up_complete.
-                # logger.info("Pre-buffering frames for smooth start")
-                # start_buffer_time = time.time()
-                # while self.frames_queue.qsize() < 5 and time.time() - start_buffer_time < 2.0:
-                #     time.sleep(0.1)
-                
-                # logger.info(f"Buffered {self.frames_queue.qsize()} frames, ready to start playback")
-                
-                # The actual playback_start_time will be set by main.py or VideoRunner just before display loop
-                
-                # Signal threads to start playback at exactly the same time
-                logger.info(f"Signaling synchronized playback start at time {self.playback_start_time}")
+                # Signal synchronized playback start
+                logger.info(f"Signaling synchronized playback start at time {self.start_time}")
                 self.start_sync_event.set()
                 
-                # Wait a moment to ensure threads have picked up the signal
-                time.sleep(0.1)
+                # Wait for warm-up barrier
+                try:
+                    self.warm_up_barrier.wait()
+                    logger.info("All threads reached warm-up barrier")
+                except threading.BrokenBarrierError:
+                    logger.warning("Warm-up barrier was broken, proceeding anyway")
+                
                 logger.info("VideoSource started successfully")
                 
             except Exception as e:
-                logger.error(f"Error starting video source: {e}")
+                self.logger.error(f"Error starting video source: {e}", exc_info=True)
+                self._error = e
+                self._error_occurred = True
                 self.is_running = False
                 raise
                 
@@ -441,6 +447,12 @@ class VideoSource:
             logger.info("Audio thread ready, waiting for sync signal")
             self.start_sync_event.wait()
             
+            # Calculate start position based on seek time
+            start_sample = int(self.start_time * sample_rate)
+            if start_sample > 0:
+                logger.info(f"Seeking audio to {self.start_time:.2f}s (sample {start_sample})")
+                data = data[start_sample:]
+            
             # Wait until the exact start time
             sleep_time = max(0, self.playback_start_time - time.time())
             if sleep_time > 0:
@@ -449,7 +461,7 @@ class VideoSource:
             logger.info(f"Starting audio playback at {self.start_time:.2f}s")
             
             # Tracking variables - initialize to start position
-            frames_played = int(self.start_time * sample_rate)
+            frames_played = 0
             
             # Create a callback that plays audio sequentially without repositioning
             def audio_callback(outdata, frames, time_info, status):
@@ -478,7 +490,7 @@ class VideoSource:
                         outdata.fill(0)
                     
                     # Update position before stopping
-                    current_time = frames_played / sample_rate
+                    current_time = frames_played / sample_rate + self.start_time
                     with self.audio_position_lock:
                         self.audio_position = current_time
                         
@@ -492,7 +504,7 @@ class VideoSource:
                 frames_played += frames
                 
                 # Update position for video synchronization
-                current_time = frames_played / sample_rate
+                current_time = frames_played / sample_rate + self.start_time
                 with self.audio_position_lock:
                     self.audio_position = current_time
                 
@@ -549,13 +561,12 @@ class VideoSource:
             with self.audio_position_lock:
                 # Use singleton clock for proper timing
                 if CLOCK.is_initialized():
-                    # Calculate elapsed time since warm-up completion
+                    # Calculate elapsed time since warm-up completion (relative to video start)
                     elapsed_time = time.time() - CLOCK.start_wall_time
-                    # Audio chunks are already timestamped as elapsed time, no need to add seek offset
                     current_time = elapsed_time
                 else:
                     # Fallback if clock not available - use old method
-                    current_time = self.start_time + self.audio_position
+                    current_time = self.audio_position
                     
                 # If we're in warm-up, increment the position for processing
                 if not self.warm_up_complete.is_set():
@@ -715,4 +726,16 @@ class VideoSource:
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+    @property
+    def fps(self):
+        """Get the video's frames per second."""
+        if hasattr(self, '_cap') and self._cap is not None and self._cap.isOpened():
+            fps = self._cap.get(cv2.CAP_PROP_FPS)
+            return fps if fps > 0 else 30.0
+        return self._video_fps if self._video_fps > 0 else 30.0
+
+    def release(self):
+        """Release all resources."""
         self.stop()

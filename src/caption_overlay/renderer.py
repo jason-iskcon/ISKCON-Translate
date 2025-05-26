@@ -46,18 +46,23 @@ class CaptionRenderer:
         time_in_caption = current_time - caption_start
         time_until_end = caption_end - current_time
         
-        # Calculate fade in/out effects
-        fade_in_duration = min(0.3, caption_duration / 3)  # Up to 0.3s fade in
-        fade_out_duration = min(0.5, caption_duration / 3)  # Up to 0.5s fade out
+        # Calculate fade in/out effects - shorter durations for more precise timing
+        fade_in_duration = min(0.15, caption_duration / 4)  # Reduced from 0.3s to 0.15s
+        fade_out_duration = min(0.2, caption_duration / 4)  # Reduced from 0.5s to 0.2s
         
         fade_factor = 1.0
         
-        # Fade in at start
+        # Fade in at start with smoother transition
         if time_in_caption < fade_in_duration and fade_in_duration > 0:
-            fade_factor = time_in_caption / fade_in_duration
-        # Fade out at end
+            # Use quadratic easing for smoother fade in
+            progress = time_in_caption / fade_in_duration
+            fade_factor = progress * progress  # Quadratic easing
+        
+        # Fade out at end with smoother transition
         elif time_until_end < fade_out_duration and fade_out_duration > 0:
-            fade_factor = time_until_end / fade_out_duration
+            # Use quadratic easing for smoother fade out
+            progress = time_until_end / fade_out_duration
+            fade_factor = progress * progress  # Quadratic easing
         
         # Ensure fade factor is within valid range
         return max(0.1, min(1.0, fade_factor))
@@ -123,15 +128,26 @@ class CaptionRenderer:
         # Calculate text block position (centered at bottom with vertical offset for multiple captions)
         vertical_offset = caption_index * (total_text_height + 20)  # 20px spacing between captions
         
+        # Center the text block horizontally and vertically within its background
+        bg_padding = self.style.padding
         text_block_x = (frame_width - max_text_width) // 2
         text_block_y = frame_height - self.style.y_offset - total_text_height - vertical_offset
         
-        # Draw background rectangle for the entire text block
-        bg_padding = self.style.padding
-        bg_x1 = max(0, text_block_x - bg_padding)
-        bg_y1 = max(0, text_block_y - bg_padding)
-        bg_x2 = min(frame_width, text_block_x + max_text_width + bg_padding)
-        bg_y2 = min(frame_height, text_block_y + total_text_height + bg_padding)
+        # Calculate background rectangle first
+        bg_x1 = text_block_x - bg_padding
+        bg_y1 = text_block_y - bg_padding
+        bg_x2 = text_block_x + max_text_width + bg_padding
+        bg_y2 = text_block_y + total_text_height + bg_padding
+        
+        # Ensure background stays within frame bounds
+        bg_x1 = max(0, min(bg_x1, frame_width - 1))
+        bg_y1 = max(0, min(bg_y1, frame_height - 1))
+        bg_x2 = max(0, min(bg_x2, frame_width - 1))
+        bg_y2 = max(0, min(bg_y2, frame_height - 1))
+        
+        # Recalculate text position to be centered within the background
+        text_block_x = (bg_x1 + bg_x2 - max_text_width) // 2
+        text_block_y = (bg_y1 + bg_y2 - total_text_height) // 2
         
         return text_block_x, text_block_y, bg_x1, bg_y1, bg_x2, bg_y2
     
@@ -250,23 +266,31 @@ class CaptionRenderer:
             # Render background
             frame = self.render_background(frame, (bg_x1, bg_y1, bg_x2, bg_y2), fade_factor)
             
+            # Calculate the vertical center of the background
+            bg_center_y = (bg_y1 + bg_y2) // 2
+            
+            # Calculate starting Y position to center all text lines within the background
+            total_line_spacing = (len(display_lines) - 1) * 5  # 5px spacing between lines
+            actual_text_height = sum(line_heights) + total_line_spacing
+            start_y = bg_center_y - (actual_text_height // 2) + line_heights[0]  # Add first line height for baseline
+            
             # Render each line of text
-            y = text_y
+            y = start_y
             for line, h in zip(display_lines, line_heights):
                 if not line.strip():
                     y += int(h * 1.5)  # Add extra space for empty lines
                     continue
                 
-                # Get text size for this line to center it
+                # Get text size for this line to center it horizontally
                 (w, _), _ = cv2.getTextSize(
                     line, self.font, self.style.font_scale, self.style.font_thickness
                 )
-                x = (frame_width - w) // 2  # Center each line
+                x = (frame_width - w) // 2  # Center each line horizontally
                 
                 # Render the text line
                 self.render_text_line(frame, line, x, y, fade_factor)
                 
-                # Move to next line position with some spacing
+                # Move to next line position with spacing
                 y += h + 5
             
             return frame
@@ -289,9 +313,15 @@ class CaptionRenderer:
         render_start = time.time()
         result_frame = frame.copy()
         
+        # Sort captions by start time (most recent first)
+        active_captions = sorted(active_captions, key=lambda x: x['start_time'], reverse=True)
+        
         # Process each active caption
         for i, caption in enumerate(active_captions):
-            result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i)
+            # Only render if fade factor is significant
+            fade_factor = self.calculate_fade_factor(caption, current_time)
+            if fade_factor > 0.1:  # Only render if not too faded
+                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i)
         
         # Log rendering performance
         render_time = (time.time() - render_start) * 1000  # Convert to milliseconds

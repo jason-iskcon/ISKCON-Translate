@@ -19,18 +19,20 @@ Usage:
     frame_with_captions = overlay.overlay_captions(frame, current_time=1.0)
 """
 
+import os
+import sys
 import cv2
-import threading
+import logging
+from typing import Optional, Dict, List, Tuple
 
-# Import with try-except to handle both direct execution and module import
-try:
-    from ..logging_utils import get_logger
-    from .style_config import CaptionStyleConfig
-    from .overlay import CaptionOverlayOrchestrator
-except ImportError:
-    from src.logging_utils import get_logger
-    from .style_config import CaptionStyleConfig
-    from .overlay import CaptionOverlayOrchestrator
+# Add src directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.logging_utils import get_logger
+from .style_config import CaptionStyleConfig
+from .core import CaptionCore
+from .renderer import CaptionRenderer
+from .overlay import CaptionOverlayOrchestrator
 
 logger = get_logger(__name__)
 
@@ -54,9 +56,6 @@ class CaptionOverlay:
             y_offset: Distance from bottom of frame in pixels
         """
         logger.debug("Initializing CaptionOverlay")
-        logger.trace(f"Font scale: {font_scale}, Thickness: {font_thickness}")
-        logger.trace(f"Text color: {font_color}, BG color: {bg_color}")
-        logger.trace(f"Padding: {padding}px, Y-Offset: {y_offset}px")
         
         # Create style configuration
         self.style_config = CaptionStyleConfig(
@@ -68,8 +67,16 @@ class CaptionOverlay:
             y_offset=y_offset
         )
         
-        # Initialize the orchestrator with the style config
-        self.orchestrator = CaptionOverlayOrchestrator(self.style_config)
+        # Initialize core components
+        self.core = CaptionCore()
+        self.renderer = CaptionRenderer(self.style_config)
+        
+        # Initialize the orchestrator with core components
+        self.orchestrator = CaptionOverlayOrchestrator(
+            core=self.core,
+            renderer=self.renderer,
+            style_config=self.style_config
+        )
         
         # Store individual style properties for backward compatibility
         self.font = cv2.FONT_HERSHEY_SIMPLEX
@@ -80,9 +87,8 @@ class CaptionOverlay:
         self.padding = padding
         self.y_offset = y_offset
         
-        logger.debug(f"CaptionOverlay initialized with start time: {self.orchestrator.core.video_start_time}")
+        logger.debug("CaptionOverlay initialized")
     
-    # Delegate core functionality to the orchestrator
     def add_caption(self, text, timestamp, duration=3.0, is_absolute=False, seamless=True):
         """Add a caption to be displayed.
         
@@ -104,7 +110,7 @@ class CaptionOverlay:
         Args:
             start_time: The absolute timestamp where the video starts (in seconds)
         """
-        return self.orchestrator.set_video_start_time(start_time)
+        self.core.set_video_start_time(start_time)
     
     def prune_captions(self, current_time, buffer=1.0):
         """Remove captions whose end_time is more than `buffer` seconds before current_time.
@@ -114,7 +120,7 @@ class CaptionOverlay:
             current_time: Current relative time from video start
             buffer: Buffer time in seconds for keeping expired captions
         """
-        return self.orchestrator.prune_captions(current_time, buffer)
+        return self.core.prune_captions(current_time, buffer)
     
     def overlay_captions(self, frame, current_time=None, frame_count=0):
         """Overlay all valid captions on frame.
@@ -133,26 +139,22 @@ class CaptionOverlay:
     @property
     def captions(self):
         """Access to the captions list for backward compatibility."""
-        return self.orchestrator.captions
+        return self.core.captions
     
     @property
     def video_start_time(self):
         """Access to video start time for backward compatibility."""
-        return self.orchestrator.video_start_time
+        return self.core.video_start_time
     
     @property
     def lock(self):
         """Access to the threading lock for backward compatibility."""
-        return self.orchestrator.lock
+        return self.core.lock
     
-    # Context manager methods for resource management
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        pass  # No resources to clean up
+    def cleanup(self):
+        """Clean up resources."""
+        self.orchestrator.cleanup()
+        self.renderer.cleanup()
 
 # Export the main class and configuration for easy importing
 __all__ = ['CaptionOverlay', 'CaptionStyleConfig'] 

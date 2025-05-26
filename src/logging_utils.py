@@ -53,72 +53,58 @@ class ColoredFormatter(logging.Formatter):
             record.levelname = f"{self.COLORS[levelname]}{levelname:8}{self.COLORS['RESET']}"
         return super().format(record)
 
-def setup_logging(level: Union[str, int] = logging.INFO, log_file: Optional[str] = None) -> None:
-    """Set up logging with the specified log level and optional log file.
+def setup_logging(level='INFO', log_file=None):
+    """Setup logging configuration.
     
     Args:
-        level: Logging level (string or int)
-        log_file: Optional path to a log file. If None, logs only to console.
+        level (str): Logging level (default: 'INFO')
+        log_file (str): Optional path to log file
     """
-    if isinstance(level, str):
-        level = level.upper()
-        if level == 'TRACE':
-            level = TRACE
-        else:
-            level = getattr(logging, level, logging.INFO)
-    
-    # Create formatters
-    colored_formatter = ColoredFormatter(
-        '%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # Set up root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    
-    # Remove existing handlers
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    
-    # Add console handler with colored output
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(colored_formatter)
-    root_logger.addHandler(console_handler)
-    
-    # Add file handler if log_file is specified
-    if log_file:
-        # Create directory if it doesn't exist
-        log_dir = os.path.dirname(log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
+    try:
+        # Convert string level to numeric value
+        numeric_level = getattr(logging, level.upper(), None)
+        if not isinstance(numeric_level, int):
+            raise ValueError(f'Invalid log level: {level}')
             
-        # Set up rotating file handler (10MB per file, keep 5 backup files)
-        max_bytes = 10 * 1024 * 1024  # 10MB
-        backup_count = 5
-        file_handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=max_bytes, 
-            backupCount=backup_count,
-            encoding='utf-8'
+        # Configure root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(numeric_level)
+        
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s',
+            '%Y-%m-%d %H:%M:%S'
         )
-        file_handler.setFormatter(file_formatter)
-        root_logger.addHandler(file_handler)
-        logger = logging.getLogger(__name__)
-        logger.info(f"Logging to rotating file: {os.path.abspath(log_file)} (max {max_bytes/1024/1024}MB, {backup_count} backups)")
-    
-    # Log the logging level and output location
-    logger = logging.getLogger(__name__)
-    if log_file:
-        logger.info("Logging initialized at level %s to %s", 
-                   logging.getLevelName(level), os.path.abspath(log_file))
-    else:
-        logger.info("Logging initialized at level %s (console only)", 
-                   logging.getLevelName(level))
+        
+        # Add console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
+        
+        # Add file handler if log file specified
+        if log_file:
+            # Ensure log directory exists
+            log_dir = os.path.dirname(log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
+                
+            # Create rotating file handler
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+            
+            root_logger.info(f"Logging initialized at level {level} (console and file)")
+        else:
+            root_logger.info(f"Logging initialized at level {level} (console only)")
+            
+    except Exception as e:
+        print(f"Error setting up logging: {e}")
+        raise
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
     """Get a logger with the given name.
@@ -130,6 +116,3 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         Configured logger instance
     """
     return logging.getLogger(name)
-
-# Set up default logging when module is imported
-setup_logging()

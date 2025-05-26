@@ -30,14 +30,155 @@ except ImportError:
 logger = get_logger(__name__)
 
 class CaptionCore:
-    """Core state management for captions."""
+    """Core caption management functionality."""
     
     def __init__(self):
-        """Initialize the caption core state."""
-        self.captions = []  # List of dicts with text, start_time, end_time, and is_absolute flag
-        self.video_start_time = time.time()  # Default to current time
-        self.lock = threading.Lock()  # For thread-safe access to captions list
-        logger.debug(f"CaptionCore initialized with start time: {self.video_start_time}")
+        """Initialize caption core."""
+        self.captions = []
+        self.caption_lock = threading.Lock()
+        self.timing_buffer = 0.1  # Increased buffer for smoother transitions
+        self._last_stats_log_time = 0.0
+        self._caption_intervals = []
+        self._last_caption_time = 0.0
+        self.video_start_time = 0.0  # Initialize video start time
+        
+    def add_caption(self, text: str, timestamp: float, duration: float = 3.0, is_absolute: bool = False) -> dict:
+        """Add a new caption with precise timing.
+        
+        Args:
+            text: Caption text
+            timestamp: Start time in seconds
+            duration: Display duration in seconds
+            is_absolute: Whether timestamp is absolute time
+        
+        Returns:
+            dict: The added caption, or None if skipped
+        """
+        if not text:
+            logger.warning("[CAPTION] Skipping empty caption.")
+            return None
+        with self.caption_lock:
+            # Store original timestamp for logging
+            original_timestamp = timestamp
+            # Convert absolute timestamp to relative if needed
+            if is_absolute:
+                timestamp = timestamp - self.video_start_time
+            # Negative timestamps are treated as 0
+            if timestamp < 0:
+                logger.warning(f"[CAPTION] Negative timestamp {timestamp:.2f}, treating as 0.")
+                timestamp = 0.0
+            # Calculate end time
+            end_time = timestamp + duration
+            # Add caption with precise timing
+            caption_id = len(self.captions) + 1
+            caption = {
+                'id': caption_id,
+                'text': text,
+                'start_time': timestamp,
+                'end_time': end_time,
+                'duration': duration,
+                'added_at': time.time(),
+                'original_timestamp': original_timestamp,
+                'was_absolute': is_absolute
+            }
+            self.captions.append(caption)
+            # Log caption addition with precise timing
+            logger.info(f"[CAPTION] Added caption #{caption_id}: '{text}' ({timestamp:.2f}s-{end_time:.2f}s)")
+            # Track timing statistics
+            current_time = time.time()
+            if self._last_caption_time > 0:
+                interval = current_time - self._last_caption_time
+                self._caption_intervals.append(interval)
+                if len(self._caption_intervals) > 10:
+                    self._caption_intervals.pop(0)
+            self._last_caption_time = current_time
+            return caption
+    
+    def get_active_captions(self, current_time: float) -> List[Dict[str, Any]]:
+        """Get currently active captions with precise timing.
+        
+        Args:
+            current_time: Current time in seconds
+            
+        Returns:
+            List of active captions
+        """
+        with self.caption_lock:
+            # Calculate buffer times with a larger buffer for smoother transitions
+            start_buffer = current_time - self.timing_buffer
+            end_buffer = current_time + self.timing_buffer
+            
+            # Find active captions with precise timing
+            active_captions = []
+            for c in self.captions:  # Process in chronological order
+                # Check if caption is active within buffer
+                if (c['start_time'] <= end_buffer and 
+                    c['end_time'] >= start_buffer):
+                    # Calculate fade factor for smooth transitions
+                    fade_start = max(0, (current_time - c['start_time']) / 0.2)  # 0.2s fade in
+                    fade_end = max(0, (c['end_time'] - current_time) / 0.2)  # 0.2s fade out
+                    fade_factor = min(fade_start, fade_end, 1.0)
+                    
+                    # Only include if not fully faded out
+                    if fade_factor > 0:
+                        c['fade_factor'] = fade_factor
+                        active_captions.append(c)
+            
+            # Sort by start time to maintain proper order
+            active_captions.sort(key=lambda x: x['start_time'])
+            
+            # Log timing stats periodically
+            self._log_timing_stats(current_time, active_captions)
+            
+            return active_captions
+    
+    def _log_timing_stats(self, current_time: float, active_captions: List[Dict[str, Any]]) -> None:
+        """Log timing statistics for debugging.
+        
+        Args:
+            current_time: Current time in seconds
+            active_captions: List of currently active captions
+        """
+        # Log stats every second
+        if current_time - self._last_stats_log_time >= 1.0:
+            logger.info("\n=== CAPTION TIMING STATS ===")
+            logger.info(f"Current time: {current_time:.3f}s")
+            logger.info(f"Active captions: {len(active_captions)}")
+            
+            if len(self._caption_intervals) >= 2:
+                avg_interval = sum(self._caption_intervals) / len(self._caption_intervals)
+                min_interval = min(self._caption_intervals)
+                max_interval = max(self._caption_intervals)
+                logger.info(f"Average caption interval: {avg_interval*1000:.2f}ms")
+                logger.info(f"Min caption interval: {min_interval*1000:.2f}ms")
+                logger.info(f"Max caption interval: {max_interval*1000:.2f}ms")
+            
+            logger.info(f"Timing buffer: {self.timing_buffer*1000:.2f}ms")
+            self._last_stats_log_time = current_time
+    
+    def clear_captions(self) -> None:
+        """Clear all captions."""
+        with self.caption_lock:
+            self.captions.clear()
+            logger.info("[CAPTION] Cleared all captions")
+    
+    def prune_captions(self, current_time: float, buffer: float = 1.0) -> None:
+        """Remove old captions to prevent memory growth.
+        
+        Args:
+            current_time: Current time in seconds
+            buffer: Buffer time in seconds for keeping expired captions
+        """
+        with self.caption_lock:
+            # Keep captions that are either:
+            # 1. Currently active
+            # 2. Will be active in the future
+            # 3. Ended within the buffer time (for debugging)
+            self.captions = [
+                c for c in self.captions
+                if c['end_time'] > current_time - buffer
+            ]
+            logger.debug(f"Pruned captions. Remaining: {len(self.captions)}")
     
     def set_video_start_time(self, start_time):
         """Set the video's start time to handle offset captions.
@@ -53,166 +194,10 @@ class CaptionCore:
         logger.debug(f"[TIMING] Video start time set to {start_time}. Current offset: {time.time() - start_time:.2f}s")
         logger.trace(f"[TIMING] Video start time details - System time: {time.time()}, Offset: {time.time() - start_time:.6f}s")
     
-    def add_caption(self, text, timestamp, duration=3.0, is_absolute=False, seamless=True):
-        """Add a caption to be displayed.
-        
-        Args:
-            text: Caption text to display
-            timestamp: Timestamp for when to show the caption (relative to video start)
-            duration: How long to display the caption in seconds
-            is_absolute: If True, timestamp is treated as absolute system time
-            seamless: If True, will try to merge with previous caption if similar
-            
-        Returns:
-            dict: The added caption or None if skipped
-        """
-        with self.lock:
-            # Store original values for logging
-            original_timestamp = timestamp
-            current_time = time.time()
-            
-            # Calculate current relative time
-            current_relative_time = current_time - self.video_start_time
-            
-            # Convert timestamp using utility function ONLY if absolute
-            if is_absolute:
-                timestamp, was_converted = convert_timestamp(timestamp, self.video_start_time, is_absolute)
-                logger.debug(f"[CAPTION] Converted absolute timestamp: {original_timestamp:.2f}s -> {timestamp:.2f}s")
-            else:
-                # For relative timestamps, use directly without conversion
-                logger.trace(f"[CAPTION] Using relative timestamp directly: {timestamp:.2f}s")
-                was_converted = False
-            
-            # Adjust timestamp if in the past
-            timestamp = adjust_timestamp_if_past(timestamp, current_relative_time)
-            
-            # Create caption entry
-            caption = {
-                'text': text,
-                'start_time': timestamp,
-                'end_time': timestamp + duration,
-                'added_at': time.time(),
-                'was_absolute': is_absolute,
-                'original_timestamp': original_timestamp,
-                'display_count': 0  # Track how many times this caption has been displayed
-            }
-            
-            # Add the new caption
-            self.captions.append(caption)
-            logger.info(f"[CAPTION] Added caption #{len(self.captions)}: '{text}' ({timestamp:.2f}s-{timestamp+duration:.2f}s)")
-            
-            return caption
-    
-    def prune_captions(self, current_time, buffer=1.0):
-        """Remove captions whose end_time is more than `buffer` seconds before current_time.
-        Also removes any captions that are too far in the future.
-        
-        Args:
-            current_time: Current relative time from video start
-            buffer: Buffer time in seconds for keeping expired captions
-        """
-        if not hasattr(self, 'last_prune_time') or (current_time - self.last_prune_time) > 1.0:
-            before = len(self.captions)
-            max_future_offset = 30  # 30 seconds in the future max
-            
-            removed_captions = [
-                c for c in self.captions 
-                if not ((c['end_time'] >= current_time - buffer) and 
-                      (c['start_time'] <= current_time + max_future_offset))
-            ]
-            
-            # Log removed captions
-            for c in removed_captions:
-                logger.debug(f"[CAPTION] Pruning caption (expired): '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' "
-                           f"(displayed {c.get('display_count', 0)} times, duration: {c['end_time']-c['start_time']:.1f}s)")
-            
-            # Keep only active captions
-            self.captions = [
-                c for c in self.captions 
-                if (c['end_time'] >= current_time - buffer) and 
-                   (c['start_time'] <= current_time + max_future_offset)
-            ]
-            
-            # Also remove any captions that have been displayed for too long
-            max_display_time = 10.0  # Maximum time a caption can be displayed (in seconds)
-            self.captions = [
-                c for c in self.captions 
-                if (time.time() - c.get('added_at', 0)) < max_display_time
-            ]
-            
-            after = len(self.captions)
-            if before != after:
-                logger.info(f"[CAPTION] Pruned {before-after} old/future captions at {current_time:.2f}s")
-                
-            self.last_prune_time = current_time
-    
-    def get_active_captions(self, current_time):
-        """Get all captions that should be active at the current time.
-        
-        Args:
-            current_time: Current relative time from video start
-            
-        Returns:
-            list: List of active caption dictionaries
-        """
-        with self.lock:
-            # First, remove any captions that have already ended (with a small buffer)
-            before_prune = len(self.captions)
-            self.captions = [c for c in self.captions if c['end_time'] > current_time - 1.0]
-            after_prune = len(self.captions)
-            
-            if before_prune != after_prune:
-                logger.debug(
-                    f"[OVERLAY] Pruned {before_prune - after_prune} old captions | "
-                    f"Current time: {current_time:.2f}s | "
-                    f"Kept captions with end_time > {current_time - 1.0:.2f}s"
-                )
-            
-            # Find all captions that should be active now (with small buffer for smooth transitions)
-            active_captions = []
-            
-            for i, c in enumerate(self.captions):
-                # Add small buffer for activation/deactivation to prevent flickering
-                is_active = (c['start_time'] - 0.1) <= current_time <= (c['end_time'] + 0.1)
-                
-                if is_active:
-                    # Update display count and log first display
-                    if 'display_count' not in c:
-                        c['display_count'] = 0
-                    if c['display_count'] == 0:
-                        logger.debug(
-                            f"[CAPTION] Displaying: '{c['text'][:50]}{'...' if len(c['text']) > 50 else ''}' | "
-                            f"At: {current_time:.2f}s | "
-                            f"Duration: {c['end_time']-c['start_time']:.1f}s"
-                        )
-                    c['display_count'] += 1
-                    
-                    # Add trace logging for active caption timing
-                    if c['display_count'] == 1:  # Only log first frame to reduce noise
-                        logger.trace(
-                            f"[TIMING] First frame timing - "
-                            f"Caption: '{c['text'][:30]}...' | "
-                            f"Start: {c['start_time']:.6f}s | "
-                            f"Current: {current_time:.6f}s | "
-                            f"End: {c['end_time']:.6f}s | "
-                            f"Time in: {current_time - c['start_time']:.6f}s"
-                        )
-                    
-                    active_captions.append(c)
-            
-            return sorted(active_captions, key=lambda x: x['start_time'])
-    
     def get_caption_count(self):
         """Get the current number of captions in the queue.
         
         Returns:
             int: Number of captions
         """
-        return len(self.captions)
-    
-    def clear_captions(self):
-        """Clear all captions from the queue."""
-        with self.lock:
-            count = len(self.captions)
-            self.captions.clear()
-            logger.info(f"[CAPTION] Cleared {count} captions from queue") 
+        return len(self.captions) 

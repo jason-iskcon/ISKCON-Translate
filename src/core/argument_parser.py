@@ -1,46 +1,31 @@
 """Command-line argument parsing for ISKCON-Translate."""
 import argparse
+from typing import Optional
 
-def parse_arguments():
-    """Parse and return command line arguments.
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments.
     
     Returns:
-        argparse.Namespace: Parsed command line arguments
+        Parsed arguments namespace
     """
-    parser = argparse.ArgumentParser(
-        description='ISKCON-Translate Video Captioning',
-        add_help=False  # We'll add help manually to control formatting
-    )
+    parser = argparse.ArgumentParser(description="ISKCON-Translate - Synchronized Video Captioning")
     
-    # Add arguments with proper formatting
-    parser.add_argument(
-        'source',
-        nargs='?',  # Make it optional
-        default=None,
-        help='Source video file path (positional or use --source)'
-    )
+    # Video file argument
+    parser.add_argument("video_file", nargs="?", help="Path to video file")
     
-    # For backward compatibility with --source
-    parser.add_argument(
-        '--source', 
-        dest='source_arg',
-        help=argparse.SUPPRESS  # Hide from help
-    )
+    # Comparison mode
+    parser.add_argument("--comparison", action="store_true", help="Enable comparison mode")
     
-    parser.add_argument(
-        '--log-level', 
-        '-l',
-        default='INFO',
-        choices=['TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        help='Set the logging level (default: %(default)s)'
-    )
+    # YouTube URL for comparison
+    parser.add_argument("--youtube", help="YouTube URL for comparison")
     
-    parser.add_argument(
-        '--help',
-        '-h',
-        action='help',
-        default=argparse.SUPPRESS,
-        help='Show this help message and exit'
-    )
+    # Logging level
+    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    
+    # Headless mode
+    parser.add_argument("--headless", action="store_true", help="Run in headless mode (no window display)")
+    
+    # Seek time
+    parser.add_argument("--seek", type=float, default=0.0, help="Start time in seconds")
     
     return parser.parse_args()

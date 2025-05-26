@@ -19,14 +19,16 @@ logger = get_logger(__name__)
 class CaptionOverlayOrchestrator:
     """Orchestrates caption overlay operations between core state and rendering."""
     
-    def __init__(self, style_config=None):
+    def __init__(self, core=None, renderer=None, style_config=None):
         """Initialize the caption overlay orchestrator.
         
         Args:
+            core: CaptionCore instance or None for default
+            renderer: CaptionRenderer instance or None for default
             style_config: CaptionStyleConfig instance or None for defaults
         """
-        self.core = CaptionCore()
-        self.renderer = CaptionRenderer(style_config)
+        self.core = core if core is not None else CaptionCore()
+        self.renderer = renderer if renderer is not None else CaptionRenderer(style_config)
         logger.debug("CaptionOverlayOrchestrator initialized")
     
     def overlay_captions(self, frame, current_time=None, frame_count=0):
@@ -166,7 +168,8 @@ class CaptionOverlayOrchestrator:
     # Proxy methods to core functionality for backward compatibility
     def add_caption(self, text, timestamp, duration=3.0, is_absolute=False, seamless=True):
         """Add a caption to be displayed. Proxy to core.add_caption."""
-        return self.core.add_caption(text, timestamp, duration, is_absolute, seamless)
+        # Only pass the arguments accepted by CaptionCore.add_caption
+        return self.core.add_caption(text, timestamp, duration, is_absolute)
     
     def set_video_start_time(self, start_time):
         """Set the video's start time. Proxy to core.set_video_start_time."""
