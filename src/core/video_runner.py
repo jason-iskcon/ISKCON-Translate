@@ -15,9 +15,11 @@ except ImportError:
 try:
     from ..translation.translator import Translator
     from ..caption_overlay.comparison import ComparisonRenderer
+    from ..text_processing import CrossSegmentDetector, ProfanityFilter, RepetitionDetector
 except ImportError:
     from src.translation.translator import Translator
     from src.caption_overlay.comparison import ComparisonRenderer
+    from src.text_processing import CrossSegmentDetector, ProfanityFilter, RepetitionDetector
 
 logger = get_logger(__name__)
 
@@ -52,6 +54,16 @@ class VideoRunner:
             self.translator = Translator()
             self.comparison_renderer = ComparisonRenderer()
             logger.info("Initialized comparison mode with translator and comparison renderer")
+        
+        # Initialize text processing components for caption enhancement
+        self.cross_segment_detector = CrossSegmentDetector(
+            context_window=5,
+            overlap_threshold=0.3,
+            similarity_threshold=0.7
+        )
+        self.profanity_filter = ProfanityFilter()
+        self.repetition_detector = RepetitionDetector()
+        logger.info("Initialized text processing components for caption enhancement")
         
         # Get video information
         self.width, self.height, self.fps = video_source.get_video_info()
@@ -196,16 +208,71 @@ class VideoRunner:
                 logger.warning(f"[TIMING] Caption timing out of bounds ({time_diff:.2f}s difference), dropping")
                 return
             
+            # Apply text processing to enhance caption quality
+            processed_text = self._process_caption_text(text, rel_start)
+            
+            # Skip empty captions after processing
+            if not processed_text.strip():
+                logger.debug(f"[TEXT_PROCESSING] Caption removed after processing: '{text}'")
+                return
+            
             # Add the caption with relative timestamps
-            logger.info(f"[CAPTION] Adding: {text!r} at rel_start={rel_start:.2f}s for {duration:.1f}s")
+            logger.info(f"[CAPTION] Adding: {processed_text!r} at rel_start={rel_start:.2f}s for {duration:.1f}s")
+            if processed_text != text:
+                logger.debug(f"[TEXT_PROCESSING] Original: '{text}' -> Processed: '{processed_text}'")
+            
             try:
-                self.caption_overlay.add_caption(text, rel_start, rel_end)
+                self.caption_overlay.add_caption(processed_text, rel_start, rel_end)
                 logger.info("[CAPTION] Added successfully")
             except Exception as e:
                 logger.error(f"Error adding caption: {e}")
                 
         except Exception as e:
             logger.error(f"Error handling transcription: {e}")
+    
+    def _process_caption_text(self, text: str, timestamp: float) -> str:
+        """
+        Process caption text through the text enhancement pipeline.
+        
+        Args:
+            text: Original caption text
+            timestamp: Caption timestamp
+            
+        Returns:
+            Processed and enhanced caption text
+        """
+        try:
+            # Step 1: Cross-segment duplication detection (most important for the current issue)
+            cross_segment_result = self.cross_segment_detector.process_segment(text, timestamp)
+            processed_text = cross_segment_result.cleaned_text
+            
+            if cross_segment_result.duplications_found:
+                logger.info(f"[CROSS_SEGMENT] {cross_segment_result.action_taken}: "
+                           f"{len(cross_segment_result.duplications_found)} duplications removed")
+                for dup in cross_segment_result.duplications_found:
+                    logger.debug(f"  - {dup['type']}: confidence={dup['confidence']:.2f}")
+            
+            # Step 2: Remove repetitions within the text
+            if processed_text.strip():
+                rep_result = self.repetition_detector.detect_and_remove_repetitions(processed_text)
+                processed_text = rep_result.cleaned_text
+                
+                if rep_result.repetitions_found:
+                    logger.debug(f"[REPETITION] Removed {len(rep_result.repetitions_found)} repetitions")
+            
+            # Step 3: Filter profanity (for family-friendly ISKCON content)
+            if processed_text.strip():
+                prof_result = self.profanity_filter.filter_text(processed_text)
+                processed_text = prof_result.filtered_text
+                
+                if prof_result.detections:
+                    logger.debug(f"[PROFANITY] Filtered {len(prof_result.detections)} items")
+            
+            return processed_text
+            
+        except Exception as e:
+            logger.error(f"Error processing caption text: {e}")
+            return text  # Return original text if processing fails
     
     def _add_debug_info(self, frame, relative_time):
         """Add debug information to the frame."""
