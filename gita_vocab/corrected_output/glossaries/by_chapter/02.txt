@@ -1,0 +1,32 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 26
+#
+yoga
+akarmaṇi
+stv
+saṅgo
+bhūr
+hetur
+phala
+kadācana
+phaleṣu
+evādhikāras
+karmaṇy
+Madhusūdana
+uvāca
+vākyam
+idaṁ
+viṣīdantam
+īkṣaṇa
+pūrṇa
+aśru
+paripūrṇa
+kṛpayā
+Arjuna
+dharma
+Sañjaya
+karma
+mā

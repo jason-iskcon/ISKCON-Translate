@@ -1,0 +1,27 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 22
+#
+ashram
+balarama
+bhagavad
+bhakti
+chandra
+dasa
+devi
+dharma
+dasa
+ganga
+gita
+krishna
+krsna
+kunti
+mantra
+prabhupada
+rishi
+swami
+varna
+vasudeva
+vishnu
+dasa

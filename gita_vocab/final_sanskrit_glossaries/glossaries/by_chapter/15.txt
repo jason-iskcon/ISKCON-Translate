@@ -1,0 +1,29 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 23
+#
+Yoga
+Vedānta
+dasa
+Vishnu
+Vasudeva
+Varna
+Swami
+Rishi
+Prabhupāda
+Mantra
+Krsna
+Krishna
+Gita
+Ganga
+Dāsa
+Dharma
+Devi
+Dasa
+Chandra
+Bhakti
+Bhagavad
+Balarāma
+Ashram

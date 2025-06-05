@@ -13,6 +13,10 @@ def parse_arguments() -> argparse.Namespace:
     # Video file argument
     parser.add_argument("video_file", nargs="?", help="Path to video file")
     
+    # Language support for transcription
+    parser.add_argument("--language", "--lang", default="en", 
+                       help="Language code for transcription (e.g., 'en', 'fr', 'it', 'es', 'de')")
+    
     # Comparison mode
     parser.add_argument("--comparison", action="store_true", help="Enable comparison mode")
     

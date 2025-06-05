@@ -1,0 +1,17 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 12
+#
+yada
+dharma
+dharmasya
+glanir
+bhavati
+bharata
+abhyutthanam
+adharmasya
+tadatmanam
+srjamy
+avatara
+adharma

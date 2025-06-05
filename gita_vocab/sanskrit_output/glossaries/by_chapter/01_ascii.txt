@@ -1,0 +1,19 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 14
+#
+ksetre
+dhrtarastra
+sanjaya
+pandu
+kuruksetra
+dharma
+kuru
+samaveta
+yuyutsavah
+mamakah
+pandavas
+caiva
+kim
+akurvata

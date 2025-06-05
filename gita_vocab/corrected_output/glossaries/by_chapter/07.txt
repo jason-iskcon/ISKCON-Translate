@@ -1,0 +1,27 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 21
+#
+jñāna
+chṛṇu
+tac
+jñāsyasi
+yathā
+māṁ
+samagraṁ
+asaṁśayaṁ
+āśrayaḥ
+mad
+yuñjan
+yogaṁ
+pārtha
+manāḥ
+āsakta
+mayy
+Bhagavān
+Śrī
+yoga
+uvāca
+bhakti

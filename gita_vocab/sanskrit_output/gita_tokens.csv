@@ -1,0 +1,169 @@
+token,ascii,count,chapters,sources,contexts
+bhakti,bhakti,7,"7,9,18",sample_sanskrit,yathā jñāsyasi tac chṛṇu yoga bhakti jñāna | tānāṁ yoga-kṣemaṁ vahāmy aham bhakti yoga kṣema | yaṁ te pratijāne priyo 'si me bhakti namaskāra priya satya | ṅgāra bhoga rāga-mārga vaidhi-bhakti rāgānugā-bhakti prema bhāva r | ṅgāra bhoga rāga-mārga vaidhi-bhakti rāgānugā-bhakti prema bhāva r
+dharma,dharma,4,"1,2,4,18",sample_sanskrit,ṣṭra Sañjaya Pāṇḍu Kurukṣetra dharma-kṣetre kuru-kṣetre samavetā y | aṅgo 'stv akarmaṇi karma yoga dharma | yadā yadā hi dharmasya glānir bhavati bhārata abh | āmi mā śucaḥ śaraṇāgati mokṣa dharma pāpa
+mā,ma,4,"2,18",sample_sanskrit,karmaṇy evādhikāras te mā phaleṣu kadācana mā karma-pha | karmaṇy evādhikāras te mā phaleṣu kadācana mā karma-pha | karmaṇy evādhikāras te mā phaleṣu kadācana mā karma-pha | sarva-dharmān parityajya mām ekaṁ śaraṇaṁ
+yoga,yoga,4,"2,7,9",sample_sanskrit,te saṅgo 'stv akarmaṇi karma yoga dharma | vāca mayy āsakta-manāḥ pārtha yogaṁ yuñjan mad-āśrayaḥ asaṁśayaṁ | pāsate teṣāṁ nityābhiyuktānāṁ yoga-kṣemaṁ vahāmy aham bhakti yog | pāsate teṣāṁ nityābhiyuktānāṁ yoga-kṣemaṁ vahāmy aham bhakti yog
+mad,mad,3,"7,18",sample_sanskrit,kta-manāḥ pārtha yogaṁ yuñjan mad-āśrayaḥ asaṁśayaṁ samagraṁ mā | man-manā bhava mad-bhakto mad-yājī māṁ namaskuru | man-manā bhava mad-bhakto mad-yājī māṁ namaskuru
+māṁ,mam,3,"7,9,18",sample_sanskrit,ad-āśrayaḥ asaṁśayaṁ samagraṁ māṁ yathā jñāsyasi tac chṛṇu yoga | ananyāś cintayanto māṁ ye janāḥ paryupāsate teṣāṁ ni | anā bhava mad-bhakto mad-yājī māṁ namaskuru mām evaiṣyasi satya
+jīva,jiva,3,15,sample_sanskrit,mamaivāṁśo jīva-loke jīva-bhūtaḥ sanātanaḥ ma | mamaivāṁśo jīva-loke jīva-bhūtaḥ sanātanaḥ ma | mamaivāṁśo jīva-loke jīva-bhūtaḥ sanātanaḥ ma
+Sañjaya,sanjaya,2,"1,2",sample_sanskrit,Dhṛtarāṣṭra Sañjaya Pāṇḍu Kurukṣetra dharma-kṣetr | Sañjaya Arjuna kṛpayā paripūrṇa aśru-
+kṣetre,ksetre,2,1,sample_sanskrit,ñjaya Pāṇḍu Kurukṣetra dharma-kṣetre kuru-kṣetre samavetā yuyutsav | ñjaya Pāṇḍu Kurukṣetra dharma-kṣetre kuru-kṣetre samavetā yuyutsav
+uvāca,uvaca,2,"2,7",sample_sanskrit,īkṣaṇa viṣīdantam idaṁ vākyam uvāca Madhusūdana | Śrī Bhagavān uvāca mayy āsakta-manāḥ pārtha yoga
+karma,karma,2,2,sample_sanskrit,karmaṇy evādhikāras te mā phaleṣu k | karmaṇy evādhikāras te mā phaleṣu k
+yadā,yada,2,4,sample_sanskrit,yadā yadā hi dharmasya glānir bhav | yadā yadā hi dharmasya glānir bhav
+prakṛti,prakrti,2,15,sample_sanskrit,ātanaḥ manaḥ-ṣaṣṭhānīndriyāṇi prakṛti-sthāni karṣati jīva ātman pra | ātanaḥ manaḥ-ṣaṣṭhānīndriyāṇi prakṛti-sthāni karṣati jīva ātman pra
+mām,mam,2,18,sample_sanskrit,bhakto mad-yājī māṁ namaskuru mām evaiṣyasi satyaṁ te pratijāne | sarva-dharmān parityajya mām ekaṁ śaraṇaṁ vraja ahaṁ tvāṁ
+sarva,sarva,2,18,sample_sanskrit,sarva-dharmān parityajya mām ekaṁ ś | sarva-dharmān parityajya mām ekaṁ ś
+ārati,arati,2,,sample_sanskrit,ā sādhu saṅga kīrtana bhajana ārati maṅgala-ārati prasādam mahā-p | ā sādhu saṅga kīrtana bhajana ārati maṅgala-ārati prasādam mahā-p
+prasādam,prasadam,2,,sample_sanskrit,a bhajana ārati maṅgala-ārati prasādam mahā-prasādam ekādaśī parikra | a bhajana ārati maṅgala-ārati prasādam mahā-prasādam ekādaśī parikra
+prema,prema,2,,sample_sanskrit,vaidhi-bhakti rāgānugā-bhakti prema bhāva rati āsakti bhāva-bhakt | vaidhi-bhakti rāgānugā-bhakti prema bhāva rati āsakti bhāva-bhakt
+bhāva,bhava,2,,sample_sanskrit,-bhakti rāgānugā-bhakti prema bhāva rati āsakti bhāva-bhakti prem | -bhakti rāgānugā-bhakti prema bhāva rati āsakti bhāva-bhakti prem
+Dhṛtarāṣṭra,dhrtarastra,1,1,sample_sanskrit,Dhṛtarāṣṭra Sañjaya Pāṇḍu Kurukṣetra dhar
+Pāṇḍu,pandu,1,1,sample_sanskrit,Dhṛtarāṣṭra Sañjaya Pāṇḍu Kurukṣetra dharma-kṣetre kuru
+Kurukṣetra,kuruksetra,1,1,sample_sanskrit,Dhṛtarāṣṭra Sañjaya Pāṇḍu Kurukṣetra dharma-kṣetre kuru-kṣetre sam
+kuru,kuru,1,1,sample_sanskrit,Dhṛtarāṣṭra Sañjaya Pāṇḍu Kurukṣetra dharma-kṣetre kuru-kṣet
+samavetā,samaveta,1,1,sample_sanskrit,tra dharma-kṣetre kuru-kṣetre samavetā yuyutsavaḥ māmakāḥ pāṇḍavāś c
+yuyutsavaḥ,yuyutsavah,1,1,sample_sanskrit,a-kṣetre kuru-kṣetre samavetā yuyutsavaḥ māmakāḥ pāṇḍavāś caiva kim ak
+māmakāḥ,mamakah,1,1,sample_sanskrit,ru-kṣetre samavetā yuyutsavaḥ māmakāḥ pāṇḍavāś caiva kim akurvata
+pāṇḍavāś,pandavas,1,1,sample_sanskrit,e samavetā yuyutsavaḥ māmakāḥ pāṇḍavāś caiva kim akurvata
+caiva,caiva,1,1,sample_sanskrit,ā yuyutsavaḥ māmakāḥ pāṇḍavāś caiva kim akurvata
+kim,kim,1,1,sample_sanskrit,tsavaḥ māmakāḥ pāṇḍavāś caiva kim akurvata
+akurvata,akurvata,1,1,sample_sanskrit,aḥ māmakāḥ pāṇḍavāś caiva kim akurvata
+Arjuna,arjuna,1,2,sample_sanskrit,Sañjaya Arjuna kṛpayā paripūrṇa aśru-pūrṇa ī
+kṛpayā,krpaya,1,2,sample_sanskrit,Sañjaya Arjuna kṛpayā paripūrṇa aśru-pūrṇa īkṣaṇa v
+paripūrṇa,paripurna,1,2,sample_sanskrit,Sañjaya Arjuna kṛpayā paripūrṇa aśru-pūrṇa īkṣaṇa viṣīdantam
+aśru,asru,1,2,sample_sanskrit,ñjaya Arjuna kṛpayā paripūrṇa aśru-pūrṇa īkṣaṇa viṣīdantam idaṁ
+pūrṇa,purna,1,2,sample_sanskrit,Sañjaya Arjuna kṛpayā paripūrṇa aśru-pūrṇa īkṣaṇa viṣīdantam
+īkṣaṇa,iksana,1,2,sample_sanskrit,a kṛpayā paripūrṇa aśru-pūrṇa īkṣaṇa viṣīdantam idaṁ vākyam uvāca
+viṣīdantam,visidantam,1,2,sample_sanskrit,ā paripūrṇa aśru-pūrṇa īkṣaṇa viṣīdantam idaṁ vākyam uvāca Madhusūdana
+idaṁ,idam,1,2,sample_sanskrit,aśru-pūrṇa īkṣaṇa viṣīdantam idaṁ vākyam uvāca Madhusūdana
+vākyam,vakyam,1,2,sample_sanskrit,-pūrṇa īkṣaṇa viṣīdantam idaṁ vākyam uvāca Madhusūdana
+Madhusūdana,madhusudana,1,2,sample_sanskrit,viṣīdantam idaṁ vākyam uvāca Madhusūdana
+karmaṇy,karmany,1,2,sample_sanskrit,karmaṇy evādhikāras te mā phaleṣu kad
+evādhikāras,evadhikaras,1,2,sample_sanskrit,karmaṇy evādhikāras te mā phaleṣu kadācana mā kar
+phaleṣu,phalesu,1,2,sample_sanskrit,karmaṇy evādhikāras te mā phaleṣu kadācana mā karma-phala-hetur
+kadācana,kadacana,1,2,sample_sanskrit,aṇy evādhikāras te mā phaleṣu kadācana mā karma-phala-hetur bhūr mā
+phala,phala,1,2,sample_sanskrit,mā phaleṣu kadācana mā karma-phala-hetur bhūr mā te saṅgo 'stv a
+hetur,hetur,1,2,sample_sanskrit,aleṣu kadācana mā karma-phala-hetur bhūr mā te saṅgo 'stv akarmaṇ
+bhūr,bhur,1,2,sample_sanskrit,kadācana mā karma-phala-hetur bhūr mā te saṅgo 'stv akarmaṇi kar
+saṅgo,sango,1,2,sample_sanskrit,karma-phala-hetur bhūr mā te saṅgo 'stv akarmaṇi karma yoga dhar
+stv,stv,1,2,sample_sanskrit,phala-hetur bhūr mā te saṅgo 'stv akarmaṇi karma yoga dharma
+akarmaṇi,akarmani,1,2,sample_sanskrit,a-hetur bhūr mā te saṅgo 'stv akarmaṇi karma yoga dharma
+dharmasya,dharmasya,1,4,sample_sanskrit,yadā yadā hi dharmasya glānir bhavati bhārata abhyut
+glānir,glanir,1,4,sample_sanskrit,yadā yadā hi dharmasya glānir bhavati bhārata abhyutthānam
+bhavati,bhavati,1,4,sample_sanskrit,yadā yadā hi dharmasya glānir bhavati bhārata abhyutthānam adharmas
+bhārata,bharata,1,4,sample_sanskrit,ā hi dharmasya glānir bhavati bhārata abhyutthānam adharmasya tadāt
+abhyutthānam,abhyutthanam,1,4,sample_sanskrit,rmasya glānir bhavati bhārata abhyutthānam adharmasya tadātmānaṁ sṛjāmy
+adharmasya,adharmasya,1,4,sample_sanskrit,bhavati bhārata abhyutthānam adharmasya tadātmānaṁ sṛjāmy aham avatār
+tadātmānaṁ,tadatmanam,1,4,sample_sanskrit,ārata abhyutthānam adharmasya tadātmānaṁ sṛjāmy aham avatāra dharma ad
+sṛjāmy,srjamy,1,4,sample_sanskrit,tthānam adharmasya tadātmānaṁ sṛjāmy aham avatāra dharma adharma
+avatāra,avatara,1,4,sample_sanskrit,rmasya tadātmānaṁ sṛjāmy aham avatāra dharma adharma
+adharma,adharma,1,4,sample_sanskrit,bhavati bhārata abhyutthānam adharmasya tadātmānaṁ sṛjāmy aham ava
+Śrī,sri,1,7,sample_sanskrit,Śrī Bhagavān uvāca mayy āsakta-ma
+Bhagavān,bhagavan,1,7,sample_sanskrit,Śrī Bhagavān uvāca mayy āsakta-manāḥ pārth
+mayy,mayy,1,7,sample_sanskrit,Śrī Bhagavān uvāca mayy āsakta-manāḥ pārtha yogaṁ yuñ
+āsakta,asakta,1,7,sample_sanskrit,Śrī Bhagavān uvāca mayy āsakta-manāḥ pārtha yogaṁ yuñjan mad
+manāḥ,manah,1,7,sample_sanskrit,rī Bhagavān uvāca mayy āsakta-manāḥ pārtha yogaṁ yuñjan mad-āśray
+pārtha,partha,1,7,sample_sanskrit,gavān uvāca mayy āsakta-manāḥ pārtha yogaṁ yuñjan mad-āśrayaḥ asaṁ
+yogaṁ,yogam,1,7,sample_sanskrit,vāca mayy āsakta-manāḥ pārtha yogaṁ yuñjan mad-āśrayaḥ asaṁśayaṁ
+yuñjan,yunjan,1,7,sample_sanskrit,ayy āsakta-manāḥ pārtha yogaṁ yuñjan mad-āśrayaḥ asaṁśayaṁ samagra
+āśrayaḥ,asrayah,1,7,sample_sanskrit,manāḥ pārtha yogaṁ yuñjan mad-āśrayaḥ asaṁśayaṁ samagraṁ māṁ yathā
+asaṁśayaṁ,asamsayam,1,7,sample_sanskrit,rtha yogaṁ yuñjan mad-āśrayaḥ asaṁśayaṁ samagraṁ māṁ yathā jñāsyasi t
+samagraṁ,samagram,1,7,sample_sanskrit,yuñjan mad-āśrayaḥ asaṁśayaṁ samagraṁ māṁ yathā jñāsyasi tac chṛṇu
+yathā,yatha,1,7,sample_sanskrit,śrayaḥ asaṁśayaṁ samagraṁ māṁ yathā jñāsyasi tac chṛṇu yoga bhakt
+jñāsyasi,jnasyasi,1,7,sample_sanskrit,asaṁśayaṁ samagraṁ māṁ yathā jñāsyasi tac chṛṇu yoga bhakti jñāna
+tac,tac,1,7,sample_sanskrit,ṁ samagraṁ māṁ yathā jñāsyasi tac chṛṇu yoga bhakti jñāna
+chṛṇu,chrnu,1,7,sample_sanskrit,magraṁ māṁ yathā jñāsyasi tac chṛṇu yoga bhakti jñāna
+jñāna,jnana,1,7,sample_sanskrit,ñāsyasi tac chṛṇu yoga bhakti jñāna
+ananyāś,ananyas,1,9,sample_sanskrit,ananyāś cintayanto māṁ ye janāḥ paryu
+cintayanto,cintayanto,1,9,sample_sanskrit,ananyāś cintayanto māṁ ye janāḥ paryupāsate teṣā
+ye,ye,1,9,sample_sanskrit,ananyāś cintayanto māṁ ye janāḥ paryupāsate teṣāṁ nityā
+janāḥ,janah,1,9,sample_sanskrit,ananyāś cintayanto māṁ ye janāḥ paryupāsate teṣāṁ nityābhiyuk
+paryupāsate,paryupasate,1,9,sample_sanskrit,anyāś cintayanto māṁ ye janāḥ paryupāsate teṣāṁ nityābhiyuktānāṁ yoga-k
+teṣāṁ,tesam,1,9,sample_sanskrit,anto māṁ ye janāḥ paryupāsate teṣāṁ nityābhiyuktānāṁ yoga-kṣemaṁ
+nityābhiyuktānāṁ,nityabhiyuktanam,1,9,sample_sanskrit,āṁ ye janāḥ paryupāsate teṣāṁ nityābhiyuktānāṁ yoga-kṣemaṁ vahāmy aham bhakt
+kṣemaṁ,ksemam,1,9,sample_sanskrit,e teṣāṁ nityābhiyuktānāṁ yoga-kṣemaṁ vahāmy aham bhakti yoga kṣema
+vahāmy,vahamy,1,9,sample_sanskrit,nityābhiyuktānāṁ yoga-kṣemaṁ vahāmy aham bhakti yoga kṣema
+kṣema,ksema,1,9,sample_sanskrit,e teṣāṁ nityābhiyuktānāṁ yoga-kṣemaṁ vahāmy aham bhakti yoga kṣem
+mamaivāṁśo,mamaivamso,1,15,sample_sanskrit,mamaivāṁśo jīva-loke jīva-bhūtaḥ sanātan
+loke,loke,1,15,sample_sanskrit,mamaivāṁśo jīva-loke jīva-bhūtaḥ sanātanaḥ manaḥ-ṣ
+bhūtaḥ,bhutah,1,15,sample_sanskrit,mamaivāṁśo jīva-loke jīva-bhūtaḥ sanātanaḥ manaḥ-ṣaṣṭhānīndriy
+sanātanaḥ,sanatanah,1,15,sample_sanskrit,aivāṁśo jīva-loke jīva-bhūtaḥ sanātanaḥ manaḥ-ṣaṣṭhānīndriyāṇi prakṛt
+manaḥ,manah,1,15,sample_sanskrit,va-loke jīva-bhūtaḥ sanātanaḥ manaḥ-ṣaṣṭhānīndriyāṇi prakṛti-sthā
+ṣaṣṭhānīndriyāṇi,sasthanindriyani,1,15,sample_sanskrit,e jīva-bhūtaḥ sanātanaḥ manaḥ-ṣaṣṭhānīndriyāṇi prakṛti-sthāni karṣati jīva ā
+sthāni,sthani,1,15,sample_sanskrit,anaḥ-ṣaṣṭhānīndriyāṇi prakṛti-sthāni karṣati jīva ātman prakṛti in
+karṣati,karsati,1,15,sample_sanskrit,ṣṭhānīndriyāṇi prakṛti-sthāni karṣati jīva ātman prakṛti indriya ma
+ātman,atman,1,15,sample_sanskrit,i prakṛti-sthāni karṣati jīva ātman prakṛti indriya manas
+indriya,indriya,1,15,sample_sanskrit,ni karṣati jīva ātman prakṛti indriya manas
+manas,manas,1,15,sample_sanskrit,ti jīva ātman prakṛti indriya manas
+man,man,1,18,sample_sanskrit,man-manā bhava mad-bhakto mad-yāj
+manā,mana,1,18,sample_sanskrit,man-manā bhava mad-bhakto mad-yājī māṁ
+bhava,bhava,1,18,sample_sanskrit,man-manā bhava mad-bhakto mad-yājī māṁ namas
+bhakto,bhakto,1,18,sample_sanskrit,man-manā bhava mad-bhakto mad-yājī māṁ namaskuru mām ev
+yājī,yaji,1,18,sample_sanskrit,man-manā bhava mad-bhakto mad-yājī māṁ namaskuru mām evaiṣyasi s
+namaskuru,namaskuru,1,18,sample_sanskrit,bhava mad-bhakto mad-yājī māṁ namaskuru mām evaiṣyasi satyaṁ te prati
+evaiṣyasi,evaisyasi,1,18,sample_sanskrit,to mad-yājī māṁ namaskuru mām evaiṣyasi satyaṁ te pratijāne priyo 'si
+satyaṁ,satyam,1,18,sample_sanskrit,ī māṁ namaskuru mām evaiṣyasi satyaṁ te pratijāne priyo 'si me bha
+pratijāne,pratijane,1,18,sample_sanskrit,skuru mām evaiṣyasi satyaṁ te pratijāne priyo 'si me bhakti namaskāra
+priyo,priyo,1,18,sample_sanskrit,evaiṣyasi satyaṁ te pratijāne priyo 'si me bhakti namaskāra priya
+si,si,1,18,sample_sanskrit,yājī māṁ namaskuru mām evaiṣyasi satyaṁ te pratijāne priyo 'si
+namaskāra,namaskara,1,18,sample_sanskrit,pratijāne priyo 'si me bhakti namaskāra priya satya
+priya,priya,1,18,sample_sanskrit,priyo 'si me bhakti namaskāra priya satya
+satya,satya,1,18,sample_sanskrit,ī māṁ namaskuru mām evaiṣyasi satyaṁ te pratijāne priyo 'si me bh
+dharmān,dharman,1,18,sample_sanskrit,sarva-dharmān parityajya mām ekaṁ śaraṇaṁ v
+parityajya,parityajya,1,18,sample_sanskrit,sarva-dharmān parityajya mām ekaṁ śaraṇaṁ vraja ahaṁ t
+ekaṁ,ekam,1,18,sample_sanskrit,sarva-dharmān parityajya mām ekaṁ śaraṇaṁ vraja ahaṁ tvāṁ sarva
+śaraṇaṁ,saranam,1,18,sample_sanskrit,a-dharmān parityajya mām ekaṁ śaraṇaṁ vraja ahaṁ tvāṁ sarva-pāpebhy
+vraja,vraja,1,18,sample_sanskrit,n parityajya mām ekaṁ śaraṇaṁ vraja ahaṁ tvāṁ sarva-pāpebhyo mokṣ
+ahaṁ,aham,1,18,sample_sanskrit,tyajya mām ekaṁ śaraṇaṁ vraja ahaṁ tvāṁ sarva-pāpebhyo mokṣayiṣy
+tvāṁ,tvam,1,18,sample_sanskrit,a mām ekaṁ śaraṇaṁ vraja ahaṁ tvāṁ sarva-pāpebhyo mokṣayiṣyāmi m
+pāpebhyo,papebhyo,1,18,sample_sanskrit,śaraṇaṁ vraja ahaṁ tvāṁ sarva-pāpebhyo mokṣayiṣyāmi mā śucaḥ śaraṇāg
+mokṣayiṣyāmi,moksayisyami,1,18,sample_sanskrit,raja ahaṁ tvāṁ sarva-pāpebhyo mokṣayiṣyāmi mā śucaḥ śaraṇāgati mokṣa dha
+śucaḥ,sucah,1,18,sample_sanskrit,arva-pāpebhyo mokṣayiṣyāmi mā śucaḥ śaraṇāgati mokṣa dharma pāpa
+śaraṇāgati,saranagati,1,18,sample_sanskrit,āpebhyo mokṣayiṣyāmi mā śucaḥ śaraṇāgati mokṣa dharma pāpa
+mokṣa,moksa,1,18,sample_sanskrit,raja ahaṁ tvāṁ sarva-pāpebhyo mokṣayiṣyāmi mā śucaḥ śaraṇāgati mo
+pāpa,papa,1,18,sample_sanskrit,śucaḥ śaraṇāgati mokṣa dharma pāpa
+Kṛṣṇa,krsna,1,,sample_sanskrit,Kṛṣṇa Rādhā Govinda Gopāla Vāsudeva
+Rādhā,radha,1,,sample_sanskrit,Kṛṣṇa Rādhā Govinda Gopāla Vāsudeva Viṣṇu
+Govinda,govinda,1,,sample_sanskrit,Kṛṣṇa Rādhā Govinda Gopāla Vāsudeva Viṣṇu Nārāyaṇ
+Gopāla,gopala,1,,sample_sanskrit,Kṛṣṇa Rādhā Govinda Gopāla Vāsudeva Viṣṇu Nārāyaṇa Śiva
+Vāsudeva,vasudeva,1,,sample_sanskrit,Kṛṣṇa Rādhā Govinda Gopāla Vāsudeva Viṣṇu Nārāyaṇa Śiva Brahmā Ga
+Viṣṇu,visnu,1,,sample_sanskrit,Rādhā Govinda Gopāla Vāsudeva Viṣṇu Nārāyaṇa Śiva Brahmā Gaṅgā Ya
+Nārāyaṇa,narayana,1,,sample_sanskrit,Govinda Gopāla Vāsudeva Viṣṇu Nārāyaṇa Śiva Brahmā Gaṅgā Yamunā Vṛnd
+Śiva,siva,1,,sample_sanskrit,opāla Vāsudeva Viṣṇu Nārāyaṇa Śiva Brahmā Gaṅgā Yamunā Vṛndāvana
+Brahmā,brahma,1,,sample_sanskrit,Vāsudeva Viṣṇu Nārāyaṇa Śiva Brahmā Gaṅgā Yamunā Vṛndāvana Mathur
+Gaṅgā,ganga,1,,sample_sanskrit,va Viṣṇu Nārāyaṇa Śiva Brahmā Gaṅgā Yamunā Vṛndāvana Mathurā Dvār
+Yamunā,yamuna,1,,sample_sanskrit,ṇu Nārāyaṇa Śiva Brahmā Gaṅgā Yamunā Vṛndāvana Mathurā Dvārakā Jag
+Vṛndāvana,vrndavana,1,,sample_sanskrit,yaṇa Śiva Brahmā Gaṅgā Yamunā Vṛndāvana Mathurā Dvārakā Jagannātha Ba
+Mathurā,mathura,1,,sample_sanskrit,Brahmā Gaṅgā Yamunā Vṛndāvana Mathurā Dvārakā Jagannātha Baladeva S
+Dvārakā,dvaraka,1,,sample_sanskrit,aṅgā Yamunā Vṛndāvana Mathurā Dvārakā Jagannātha Baladeva Subhadrā
+Jagannātha,jagannatha,1,,sample_sanskrit,unā Vṛndāvana Mathurā Dvārakā Jagannātha Baladeva Subhadrā Caitanya Ni
+Baladeva,baladeva,1,,sample_sanskrit,na Mathurā Dvārakā Jagannātha Baladeva Subhadrā Caitanya Nityānanda
+Subhadrā,subhadra,1,,sample_sanskrit,ā Dvārakā Jagannātha Baladeva Subhadrā Caitanya Nityānanda Advaita G
+Caitanya,caitanya,1,,sample_sanskrit,Jagannātha Baladeva Subhadrā Caitanya Nityānanda Advaita Gadādhara
+Nityānanda,nityananda,1,,sample_sanskrit,ha Baladeva Subhadrā Caitanya Nityānanda Advaita Gadādhara Śrīvāsa gur
+Advaita,advaita,1,,sample_sanskrit,Subhadrā Caitanya Nityānanda Advaita Gadādhara Śrīvāsa guru paramp
+Gadādhara,gadadhara,1,,sample_sanskrit,ā Caitanya Nityānanda Advaita Gadādhara Śrīvāsa guru paramparā sādhu
+Śrīvāsa,srivasa,1,,sample_sanskrit,Nityānanda Advaita Gadādhara Śrīvāsa guru paramparā sādhu saṅga kī
+guru,guru,1,,sample_sanskrit,nda Advaita Gadādhara Śrīvāsa guru paramparā sādhu saṅga kīrtana
+paramparā,parampara,1,,sample_sanskrit,dvaita Gadādhara Śrīvāsa guru paramparā sādhu saṅga kīrtana bhajana ā
+sādhu,sadhu,1,,sample_sanskrit,ādhara Śrīvāsa guru paramparā sādhu saṅga kīrtana bhajana ārati m
+saṅga,sanga,1,,sample_sanskrit,Śrīvāsa guru paramparā sādhu saṅga kīrtana bhajana ārati maṅgala
+kīrtana,kirtana,1,,sample_sanskrit,sa guru paramparā sādhu saṅga kīrtana bhajana ārati maṅgala-ārati p
+bhajana,bhajana,1,,sample_sanskrit,paramparā sādhu saṅga kīrtana bhajana ārati maṅgala-ārati prasādam
+maṅgala,mangala,1,,sample_sanskrit,u saṅga kīrtana bhajana ārati maṅgala-ārati prasādam mahā-prasādam
+mahā,maha,1,,sample_sanskrit,ārati maṅgala-ārati prasādam mahā-prasādam ekādaśī parikramā da
+ekādaśī,ekadasi,1,,sample_sanskrit,-ārati prasādam mahā-prasādam ekādaśī parikramā darśana sevā pūjā a
+parikramā,parikrama,1,,sample_sanskrit,rasādam mahā-prasādam ekādaśī parikramā darśana sevā pūjā abhiṣeka śṛ
+darśana,darsana,1,,sample_sanskrit,hā-prasādam ekādaśī parikramā darśana sevā pūjā abhiṣeka śṛṅgāra bh
+sevā,seva,1,,sample_sanskrit,dam ekādaśī parikramā darśana sevā pūjā abhiṣeka śṛṅgāra bhoga r
+pūjā,puja,1,,sample_sanskrit,kādaśī parikramā darśana sevā pūjā abhiṣeka śṛṅgāra bhoga rāga-m
+abhiṣeka,abhiseka,1,,sample_sanskrit,ī parikramā darśana sevā pūjā abhiṣeka śṛṅgāra bhoga rāga-mārga vaid
+śṛṅgāra,srngara,1,,sample_sanskrit,mā darśana sevā pūjā abhiṣeka śṛṅgāra bhoga rāga-mārga vaidhi-bhakt
+bhoga,bhoga,1,,sample_sanskrit,na sevā pūjā abhiṣeka śṛṅgāra bhoga rāga-mārga vaidhi-bhakti rāgā
+rāga,raga,1,,sample_sanskrit,ā pūjā abhiṣeka śṛṅgāra bhoga rāga-mārga vaidhi-bhakti rāgānugā-
+mārga,marga,1,,sample_sanskrit,ā abhiṣeka śṛṅgāra bhoga rāga-mārga vaidhi-bhakti rāgānugā-bhakti
+vaidhi,vaidhi,1,,sample_sanskrit,ṣeka śṛṅgāra bhoga rāga-mārga vaidhi-bhakti rāgānugā-bhakti prema
+rāgānugā,raganuga,1,,sample_sanskrit,hoga rāga-mārga vaidhi-bhakti rāgānugā-bhakti prema bhāva rati āsakt
+rati,rati,1,,sample_sanskrit,sādhu saṅga kīrtana bhajana ārati maṅgala-ārati prasādam mahā-p
+āsakti,asakti,1,,sample_sanskrit,ānugā-bhakti prema bhāva rati āsakti bhāva-bhakti prema-bhakti

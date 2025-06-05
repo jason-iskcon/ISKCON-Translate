@@ -1,0 +1,18 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 13
+#
+bhakti
+yoga
+māṁ
+ananyāś
+cintayanto
+ye
+janāḥ
+paryupāsate
+teṣāṁ
+nityābhiyuktānāṁ
+kṣemaṁ
+vahāmy
+kṣema

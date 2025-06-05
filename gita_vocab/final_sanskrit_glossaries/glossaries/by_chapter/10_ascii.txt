@@ -1,0 +1,55 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 49
+#
+siva
+adityas
+sama
+yaksas
+vasuki
+vasudeva
+vyasa
+varuna
+rama
+prahlada
+narada
+nagas
+marici
+karttikeya
+himalayas
+garuda
+brhat
+brhaspati
+bhrgu
+aryama
+airavata
+agni
+sama
+indra
+brahma
+dasa
+vishnu
+vasudeva
+varna
+swami
+rishi
+prabhupada
+mantra
+krsna
+krishna
+janardana
+gita
+ganga
+dasa
+dharma
+devi
+dasa
+chandra
+bhakti
+bhagavad
+balarama
+ashram
+arjuna
+ananta

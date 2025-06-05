@@ -68,8 +68,8 @@ class VideoRunner:
         self._latest_audio_rel = 0.0
         self._last_no_transcription_log_time = 0.0
         
-        # Caption timing offset for better sync - make captions appear slightly early
-        self.caption_timing_offset = -0.100  # 100ms early for better lip sync
+        # Caption timing offset for better sync - reduce early timing for better audio sync
+        self.caption_timing_offset = -0.050  # 50ms early for better lip sync (reduced from 100ms)
         
         # Initialize text processing components
         try:
@@ -506,8 +506,9 @@ class VideoRunner:
             target_fps = self.video_source.fps
             frame_duration = 1.0 / target_fps
             
-            # More aggressive frame timing for better sync
-            skip_threshold = 1  # Skip frames if we're more than 1 frame behind (more aggressive)
+            # Optimize frame timing for smoother playback
+            skip_threshold = 0  # Skip frames only when absolutely necessary for smooth playback
+            max_skip_per_loop = 2  # Limit skips to maintain smooth video quality
             
             while True:
                 current_time = time.perf_counter()
@@ -517,11 +518,11 @@ class VideoRunner:
                 # Calculate how many frames we're behind
                 frames_behind = expected_frame - frame_count
                 
-                # If we're significantly behind, skip frames to catch up (more aggressive)
+                # Only skip frames if we're significantly behind (more conservative)
                 if frames_behind > skip_threshold:
                     # Skip frames by getting multiple frames quickly
                     skipped = 0
-                    while skipped < frames_behind - 1 and skipped < 5:  # Limit max skips per loop
+                    while skipped < frames_behind and skipped < max_skip_per_loop:  # Limit skips for smooth video
                         frame_data = self.video_source.get_frame()
                         if frame_data is None:
                             break
@@ -529,7 +530,7 @@ class VideoRunner:
                         frame_count += 1
                     
                     if skipped > 0:
-                        logger.debug(f"Skipped {skipped} frames to maintain sync")
+                        logger.debug(f"Skipped {skipped} frames for smooth playback")
                 
                 # Process the current frame
                 if frame_count <= expected_frame:

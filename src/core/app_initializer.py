@@ -40,15 +40,18 @@ def initialize_video_source(args):
         logger.error(f"Error initializing video source: {e}", exc_info=True)
         raise
 
-def initialize_transcriber():
+def initialize_transcriber(args):
     """Initialize the transcription engine.
     
+    Args:
+        args: Command line arguments
+        
     Returns:
         TranscriptionEngine: Initialized transcription engine
     """
     try:
-        transcriber = TranscriptionEngine()
-        logger.info("Initialized transcription engine")
+        transcriber = TranscriptionEngine(language=args.language)
+        logger.info(f"Initialized transcription engine with language: {args.language}")
         return transcriber
     except Exception as e:
         logger.error(f"Error initializing transcription engine: {e}", exc_info=True)
@@ -89,7 +92,7 @@ def initialize_app(args):
         
         # Initialize components
         video_source = initialize_video_source(args)
-        transcriber = initialize_transcriber()
+        transcriber = initialize_transcriber(args)
         caption_overlay = initialize_caption_overlay(args)
         
         return video_source, transcriber, caption_overlay

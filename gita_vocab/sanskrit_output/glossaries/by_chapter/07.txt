@@ -1,0 +1,26 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 21
+#
+bhakti
+uvāca
+yoga
+Śrī
+Bhagavān
+mayy
+āsakta
+manāḥ
+pārtha
+yogaṁ
+yuñjan
+mad
+āśrayaḥ
+asaṁśayaṁ
+samagraṁ
+māṁ
+yathā
+jñāsyasi
+tac
+chṛṇu
+jñāna

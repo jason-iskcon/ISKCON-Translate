@@ -1,0 +1,30 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 25
+#
+sons
+his
+dhritarashtra
+pandu
+king
+battle
+said
+sanjaya
+my
+assembled
+place
+pilgrimage
+kurukshetra
+desiring
+fight
+they
+blind
+inquired
+secretary
+brother
+inquiry
+made
+because
+anxious
+outcome

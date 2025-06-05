@@ -1,0 +1,54 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 49
+#
+Ananta
+Arjuna
+Ashram
+Balarāma
+Bhagavad
+Bhakti
+Chandra
+Dasa
+Devi
+Dharma
+Dāsa
+Ganga
+Gita
+Janārdana
+Krishna
+Krsna
+Mantra
+Prabhupāda
+Rishi
+Swami
+Varna
+Vasudeva
+Vishnu
+dasa
+Brahmā
+Indra
+Sāma
+Agni
+Airāvata
+Aryamā
+Bhṛgu
+Bṛhaspati
+Bṛhat
+Garuḍa
+Himālayas
+Kārttikeya
+Marīci
+Nāgas
+Nārada
+Prahlāda
+Rāma
+Varuṇa
+Vyāsa
+Vāsudeva
+Vāsuki
+Yakṣas
+sāma
+Ādityas
+Śiva

@@ -1,0 +1,26 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 21
+#
+bhakti
+uvaca
+yoga
+sri
+bhagavan
+mayy
+asakta
+manah
+partha
+yogam
+yunjan
+mad
+asrayah
+asamsayam
+samagram
+mam
+yatha
+jnasyasi
+tac
+chrnu
+jnana

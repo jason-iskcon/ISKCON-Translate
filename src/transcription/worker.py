@@ -35,7 +35,8 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
                            sampling_rate: int, warm_up_mode_flag: threading.Event,
                            drops_last_minute: collections.deque,
                            drop_stats_lock: threading.Lock,
-                           worker_threads: list, device: str, engine_instance: Any = None) -> None:
+                           worker_threads: list, device: str, engine_instance: Any = None,
+                           language: str = "en") -> None:
     """Main transcription worker function.
     
     Args:
@@ -53,6 +54,7 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
         worker_threads: List of worker threads
         device: Processing device (cpu/cuda)
         engine_instance: Optional engine instance
+        language: Language code for transcription (e.g., 'en', 'fr', 'it', 'es', 'de')
     """
     worker_name = threading.current_thread().name
     logger.info(f"[{worker_name}] Transcription worker started")
@@ -115,7 +117,7 @@ def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue
                 success = _process_audio_segment(
                     audio_data, timestamp, model, result_queue, 
                     worker_name, sampling_rate, processed_chunks_counter,
-                    avg_time_tracker, engine_instance, performance_monitor
+                    avg_time_tracker, engine_instance, performance_monitor, language
                 )
                 
                 if success:
@@ -152,7 +154,7 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
                          result_queue: queue.Queue, worker_name: str,
                          sampling_rate: int, processed_chunks_counter: Any,
                          avg_time_tracker: Any, engine_instance: Any,
-                         performance_monitor: PerformanceMonitor) -> bool:
+                         performance_monitor: PerformanceMonitor, language: str) -> bool:
     """Process a single audio segment.
     
     Args:
@@ -166,6 +168,7 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         avg_time_tracker: Tracker for average processing time
         engine_instance: Optional engine instance
         performance_monitor: Performance monitoring instance
+        language: Language code for transcription (e.g., 'en', 'fr', 'it', 'es', 'de')
         
     Returns:
         bool: True if processing succeeded (including after CUDA fallback), False otherwise
@@ -178,8 +181,18 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         logger.debug(f"[{worker_name}] Starting audio transcription...")
         start_process_time = time.time()
         
+        # Create initial prompt with Chapter 7 Bhagavad Gita vocabulary for better transcription
+        chapter_7_vocabulary = (
+            "Bhagavad Gita Chapter 7 contains important Sanskrit terms: "
+            "Krishna, Arjuna, Brahman, yoga, Vasudeva, Vishnu, dharma, "
+            "bhakti, Gita, Pārtha, Krsna, dāsa, Prabhupāda, mantra, "
+            "Kuntī, rishi, swami, varna, ashram, Balarāma, Chandra, "
+            "Devi, Ganga, Janārdana. These sacred names and concepts "
+            "appear frequently in spiritual discourse."
+        )
+        
         # Transcribe the audio with retry logic
-        segments, info = _transcribe_with_retry(model, audio_data, worker_name, engine_instance, performance_monitor)
+        segments, info = _transcribe_with_retry(model, audio_data, worker_name, engine_instance, performance_monitor, language)
         
         if segments is None:
             return False
@@ -209,7 +222,7 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         return False
 
 
-def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, engine_instance: Any, performance_monitor: PerformanceMonitor):
+def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, engine_instance: Any, performance_monitor: PerformanceMonitor, language: str):
     """Transcribe audio with retry logic for transient errors.
     
     Args:
@@ -218,6 +231,7 @@ def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, en
         worker_name: Name of the worker thread
         engine_instance: Optional engine instance
         performance_monitor: Performance monitoring instance
+        language: Language code for transcription (e.g., 'en', 'fr', 'it', 'es', 'de')
         
     Returns:
         Tuple of (segments, info) or (None, None) on failure
@@ -228,10 +242,11 @@ def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, en
         try:
             segments, info = model.transcribe(
                 audio_data,
-                language="en",
+                language=language,
                 beam_size=5,
                 word_timestamps=True,
-                temperature=0.0  # Disable sampling for more consistent results
+                temperature=0.0,  # Disable sampling for more consistent results
+                initial_prompt=chapter_7_vocabulary  # Add Gita vocabulary context
             )
             segments = list(segments)  # Convert generator to list to catch errors early
             return segments, info

@@ -1,0 +1,18 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 13
+#
+jiva
+prakrti
+mamaivamso
+loke
+bhutah
+sanatanah
+manah
+sasthanindriyani
+sthani
+karsati
+atman
+indriya
+manas

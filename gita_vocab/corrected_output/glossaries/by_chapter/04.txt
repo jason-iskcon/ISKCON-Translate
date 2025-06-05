@@ -1,0 +1,18 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 12
+#
+adharma
+avatāra
+sṛjāmy
+tadātmānaṁ
+adharmasya
+abhyutthānam
+bhārata
+bhavati
+glānir
+dharmasya
+dharma
+yadā

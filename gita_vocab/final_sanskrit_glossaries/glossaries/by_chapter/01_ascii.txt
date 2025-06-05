@@ -1,0 +1,55 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 49
+#
+saibya
+dasa
+yuyudhana
+yudhamanyu
+vishnu
+vikarna
+vasudeva
+varna
+uttamauja
+satyaki
+swami
+sughosa
+subhadra
+sanjaya
+sahadeva
+rishi
+partha
+prabhupada
+nakula
+mantra
+madhusudana
+krpa
+kuruksetratext
+kuruksetra
+kunti
+krsna
+krishna
+karna
+janardana
+hanuman
+govinda
+gita
+ganga
+dasa
+duryodhana
+drona
+draupadi
+dharma
+devi
+dasa
+chandra
+cekitana
+bhima
+bhakti
+bhagavad
+balarama
+ashram
+arjuna
+ananta

@@ -60,16 +60,19 @@ class TranscriptionEngine:
     playback_start_time = 0.0  # Global playback time origin for sync
     
     def __init__(self, model_size: str = "small", device: str = "auto", 
-                 compute_type: str = "auto", warm_up_complete_event: Optional[threading.Event] = None):
+                 compute_type: str = "auto", language: str = "en", 
+                 warm_up_complete_event: Optional[threading.Event] = None):
         """Initialize the transcription engine.
         
         Args:
             model_size: Size of the Whisper model (tiny, base, small, medium, large)
             device: Device to run the model on ('cuda', 'cpu', or 'auto' for automatic detection)
             compute_type: Computation type ('float16', 'int8', or 'auto' for automatic selection)
+            language: Language code for transcription (e.g., 'en', 'fr', 'it', 'es', 'de')
             warm_up_complete_event: Event to signal when warm-up phase is complete
         """
         self.model_size = model_size
+        self.language = language  # Store language for transcription
         self.sampling_rate = SAMPLING_RATE
         self.warm_up_complete_event = warm_up_complete_event
         
@@ -198,10 +201,18 @@ class TranscriptionEngine:
             self.worker_threads = []
             for i in range(self.n_workers):
                 worker = threading.Thread(
-                    target=self._run_worker,
-                    name=f"{WORKER_THREAD_PREFIX}-{i+1}",
-                    daemon=True
+                    target=run_transcription_worker,
+                    args=(
+                        self.audio_queue, self.result_queue, self.model,
+                        self.is_running, self.performance_monitor,
+                        self.processed_chunks, self.average_processing_time,
+                        self.sampling_rate, self._warm_up_mode, self.drops_last_minute,
+                        self.drop_stats_lock, self.worker_threads, self.device, 
+                        self, self.language  # Pass language to worker
+                    ),
+                    name=f"{WORKER_THREAD_PREFIX}#{i}"
                 )
+                worker.daemon = True
                 worker.start()
                 self.worker_threads.append(worker)
                 
@@ -302,7 +313,8 @@ class TranscriptionEngine:
                 drop_stats_lock=self.drop_stats_lock,
                 worker_threads=self.worker_threads,
                 device=self.device,
-                engine_instance=self  # Pass self for CPU fallback
+                engine_instance=self,  # Pass self for CPU fallback
+                language=self.language  # Pass language to worker
             )
         except Exception as e:
             logger.error(f"Worker thread failed: {e}", exc_info=True)

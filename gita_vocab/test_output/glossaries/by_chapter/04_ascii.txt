@@ -1,0 +1,36 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 31
+#
+arjuna
+krishna
+principle
+dharma
+whenever
+wherever
+there
+decline
+religious
+practice
+descendant
+bharata
+predominant
+rise
+irreligion
+time
+descend
+myself
+explains
+divine
+incarnation
+declines
+adharma
+increases
+supreme
+lord
+manifests
+restore
+righteousness
+protect
+devotees

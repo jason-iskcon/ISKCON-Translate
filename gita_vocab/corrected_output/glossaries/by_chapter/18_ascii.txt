@@ -1,0 +1,40 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (ascending - most frequent at bottom)
+# This order optimizes Whisper transcription accuracy
+# Total terms: 34
+#
+papa
+moksa
+saranagati
+sucah
+moksayisyami
+papebhyo
+tvam
+aham
+vraja
+saranam
+ekam
+parityajya
+dharman
+satya
+priya
+namaskara
+si
+priyo
+pratijane
+satyam
+evaisyasi
+namaskuru
+yaji
+bhakto
+bhava
+mana
+man
+mam
+mad
+dharma
+sarva
+mam
+bhakti
+ma

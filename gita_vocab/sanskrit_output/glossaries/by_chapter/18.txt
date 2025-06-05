@@ -1,0 +1,39 @@
+# Bhagavad Gita Glossary (UTF8)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 34
+#
+mā
+bhakti
+mām
+sarva
+dharma
+mad
+māṁ
+man
+manā
+bhava
+bhakto
+yājī
+namaskuru
+evaiṣyasi
+satyaṁ
+pratijāne
+priyo
+si
+namaskāra
+priya
+satya
+dharmān
+parityajya
+ekaṁ
+śaraṇaṁ
+vraja
+ahaṁ
+tvāṁ
+pāpebhyo
+mokṣayiṣyāmi
+śucaḥ
+śaraṇāgati
+mokṣa
+pāpa

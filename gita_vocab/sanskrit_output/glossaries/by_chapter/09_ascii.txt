@@ -1,0 +1,18 @@
+# Bhagavad Gita Glossary (ASCII)
+# Generated from corpus analysis
+# Terms sorted by frequency (descending)
+# Total terms: 13
+#
+bhakti
+yoga
+mam
+ananyas
+cintayanto
+ye
+janah
+paryupasate
+tesam
+nityabhiyuktanam
+ksemam
+vahamy
+ksema
