@@ -42,13 +42,13 @@ class CaptionCore:
         self._last_caption_time = 0.0
         self.video_start_time = 0.0  # Initialize video start time
         
-    def add_caption(self, text: str, timestamp: float, duration: float = 1.0, is_absolute: bool = False) -> dict:
+    def add_caption(self, text: str, timestamp: float, duration: float = 2.5, is_absolute: bool = False) -> dict:
         """Add a new caption with precise timing.
         
         Args:
             text: Caption text
             timestamp: Start time in seconds
-            duration: Display duration in seconds (reduced to 1.0s for fast disappearance)
+            duration: Display duration in seconds (default 2.5s for good readability)
             is_absolute: Whether timestamp is absolute time
         
         Returns:
@@ -120,14 +120,21 @@ class CaptionCore:
                 # Check if caption is active within buffer
                 if (c['start_time'] <= end_buffer and 
                     c['end_time'] >= start_buffer):
-                    # Calculate fade factor for fast but visible transitions
-                    fade_start = max(0, (current_time - c['start_time']) / 0.15)  # 150ms fade in
-                    fade_end = max(0, (c['end_time'] - current_time) / 0.15)  # 150ms fade out
-                    fade_factor = min(fade_start, fade_end, 1.0)
+                    # Calculate fade factor for smooth but visible transitions
+                    # Use smaller fade duration to ensure captions are visible at edges
+                    fade_duration = 0.1  # 100ms fade duration
                     
-                    # Only include if not fully faded out (allow minimal fade for edge cases)
-                    if fade_factor >= 0.0:  # Changed from > 0 to >= 0.0 to include edge cases
-                        c['fade_factor'] = max(0.1, fade_factor)  # Ensure minimum visibility
+                    fade_start = max(0, min(1, (current_time - c['start_time']) / fade_duration))
+                    fade_end = max(0, min(1, (c['end_time'] - current_time) / fade_duration))
+                    fade_factor = min(fade_start, fade_end)
+                    
+                    # Ensure captions are always visible when within their time range
+                    if c['start_time'] <= current_time <= c['end_time']:
+                        fade_factor = max(0.1, fade_factor)  # Minimum 10% opacity when active
+                    
+                    # Only include if fade factor is significant
+                    if fade_factor > 0.05:  # Lowered threshold to prevent floating point edge cases
+                        c['fade_factor'] = fade_factor
                         active_captions.append(c)
             
             # Sort by start time to maintain proper order

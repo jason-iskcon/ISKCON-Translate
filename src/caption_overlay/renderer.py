@@ -329,7 +329,7 @@ class CaptionRenderer:
             # Only render if fade factor is significant
             fade_factor = self.calculate_fade_factor(caption, current_time)
             
-            if fade_factor >= 0.1:  # Include captions with minimum fade
+            if fade_factor > 0.05:  # Lowered threshold to match core logic
                 result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i)
                 rendered_count += 1
         

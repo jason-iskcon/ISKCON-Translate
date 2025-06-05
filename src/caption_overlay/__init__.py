@@ -89,7 +89,7 @@ class CaptionOverlay:
         
         logger.debug("CaptionOverlay initialized")
     
-    def add_caption(self, text, timestamp, duration=1.0, is_absolute=False, seamless=True):
+    def add_caption(self, text, timestamp, duration=2.5, is_absolute=False, seamless=True):
         """Add a caption to be displayed.
         
         Args:
