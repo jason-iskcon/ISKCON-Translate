@@ -89,13 +89,13 @@ class CaptionOverlay:
         
         logger.debug("CaptionOverlay initialized")
     
-    def add_caption(self, text, timestamp, duration=3.0, is_absolute=False, seamless=True):
+    def add_caption(self, text, timestamp, duration=1.0, is_absolute=False, seamless=True):
         """Add a caption to be displayed.
         
         Args:
             text: Caption text to display
             timestamp: Timestamp for when to show the caption (relative to video start)
-            duration: How long to display the caption in seconds
+            duration: How long to display the caption in seconds (reduced to 1.0s)
             is_absolute: If True, timestamp is treated as absolute system time
             seamless: If True, will try to merge with previous caption if similar
             

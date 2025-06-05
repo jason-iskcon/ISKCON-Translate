@@ -166,7 +166,7 @@ class CaptionOverlayOrchestrator:
         return result_frame
     
     # Proxy methods to core functionality for backward compatibility
-    def add_caption(self, text, timestamp, duration=3.0, is_absolute=False, seamless=True):
+    def add_caption(self, text, timestamp, duration=1.0, is_absolute=False, seamless=True):
         """Add a caption to be displayed. Proxy to core.add_caption."""
         # Only pass the arguments accepted by CaptionCore.add_caption
         return self.core.add_caption(text, timestamp, duration, is_absolute)

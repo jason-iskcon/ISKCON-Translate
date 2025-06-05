@@ -46,25 +46,25 @@ class CaptionRenderer:
         time_in_caption = current_time - caption_start
         time_until_end = caption_end - current_time
         
-        # Calculate fade in/out effects - shorter durations for more precise timing
-        fade_in_duration = min(0.15, caption_duration / 4)  # Reduced from 0.3s to 0.15s
-        fade_out_duration = min(0.2, caption_duration / 4)  # Reduced from 0.5s to 0.2s
+        # Quick but visible fade durations for responsive lip sync
+        fade_in_duration = min(0.1, caption_duration / 5)  # 100ms max fade in
+        fade_out_duration = min(0.1, caption_duration / 5)  # 100ms max fade out
         
         fade_factor = 1.0
         
-        # Fade in at start with smoother transition
+        # Quick fade in
         if time_in_caption < fade_in_duration and fade_in_duration > 0:
-            # Use quadratic easing for smoother fade in
+            # Linear fade for predictable timing
             progress = time_in_caption / fade_in_duration
-            fade_factor = progress * progress  # Quadratic easing
+            fade_factor = progress
         
-        # Fade out at end with smoother transition
+        # Quick fade out
         elif time_until_end < fade_out_duration and fade_out_duration > 0:
-            # Use quadratic easing for smoother fade out
+            # Linear fade for predictable timing
             progress = time_until_end / fade_out_duration
-            fade_factor = progress * progress  # Quadratic easing
+            fade_factor = progress
         
-        # Ensure fade factor is within valid range
+        # Ensure fade factor is within valid range with minimum visibility
         return max(0.1, min(1.0, fade_factor))
     
     def process_caption_text(self, caption_text):
@@ -253,6 +253,7 @@ class CaptionRenderer:
             display_lines = self.process_caption_text(caption['text'])
             
             if not display_lines:
+                logger.warning(f"[RENDER_CAPTION] No display lines generated for caption: '{caption['text']}'")
                 return frame
             
             # Calculate text dimensions
@@ -276,7 +277,7 @@ class CaptionRenderer:
             
             # Render each line of text
             y = start_y
-            for line, h in zip(display_lines, line_heights):
+            for line_idx, (line, h) in enumerate(zip(display_lines, line_heights)):
                 if not line.strip():
                     y += int(h * 1.5)  # Add extra space for empty lines
                     continue
@@ -313,21 +314,31 @@ class CaptionRenderer:
         render_start = time.time()
         result_frame = frame.copy()
         
-        # Sort captions by start time (most recent first)
-        active_captions = sorted(active_captions, key=lambda x: x['start_time'], reverse=True)
+        # Reduce debug logging frequency to improve performance
+        should_log = len(active_captions) > 0 and (int(current_time * 10) % 10 == 0)  # Log once per second
+        
+        if should_log:
+            logger.debug(f"[RENDER] Rendering {len(active_captions)} captions at time {current_time:.3f}s")
+        
+        # Sort captions by start time (oldest first) to maintain proper stacking order
+        active_captions = sorted(active_captions, key=lambda x: x['start_time'])
         
         # Process each active caption
+        rendered_count = 0
         for i, caption in enumerate(active_captions):
             # Only render if fade factor is significant
             fade_factor = self.calculate_fade_factor(caption, current_time)
-            if fade_factor > 0.1:  # Only render if not too faded
+            
+            if fade_factor >= 0.1:  # Include captions with minimum fade
                 result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i)
+                rendered_count += 1
         
-        # Log rendering performance
+        if should_log and rendered_count > 0:
+            logger.debug(f"[RENDER] Rendered {rendered_count}/{len(active_captions)} captions")
+        
+        # Log rendering performance warnings only
         render_time = (time.time() - render_start) * 1000  # Convert to milliseconds
         if render_time > 16:  # Log warning if rendering takes more than 16ms (~60fps)
             logger.warning(f"Slow frame rendering: {render_time:.2f}ms")
-        elif len(active_captions) > 0:
-            logger.trace(f"Rendered {len(active_captions)} captions in {render_time:.2f}ms")
         
         return result_frame 

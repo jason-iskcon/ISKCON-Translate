@@ -24,8 +24,8 @@ CPU_PARAMS = {
 }
 
 GPU_PARAMS = {
-    'chunk_size': 3.0,      # Larger chunks for GPU (better context for Whisper)
-    'overlap': 1.0,         # Larger overlap for better continuity
+    'chunk_size': 5.0,      # Increased from 3.0s to 5.0s for better context
+    'overlap': 1.5,         # Increased from 1.0s to 1.5s for better continuity
     'queue_maxsize': 10,    # Smaller queue since GPU processes much faster
     'n_workers': 1          # Single worker for GPU (80ms per 3s chunk = massive headroom)
 }

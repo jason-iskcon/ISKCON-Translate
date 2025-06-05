@@ -36,19 +36,19 @@ class CaptionCore:
         """Initialize caption core."""
         self.captions = []
         self.caption_lock = threading.Lock()
-        self.timing_buffer = 0.1  # Increased buffer for smoother transitions
+        self.timing_buffer = 0.033  # 33ms (1 frame at 30fps) for good sync without breaking tests
         self._last_stats_log_time = 0.0
         self._caption_intervals = []
         self._last_caption_time = 0.0
         self.video_start_time = 0.0  # Initialize video start time
         
-    def add_caption(self, text: str, timestamp: float, duration: float = 3.0, is_absolute: bool = False) -> dict:
+    def add_caption(self, text: str, timestamp: float, duration: float = 1.0, is_absolute: bool = False) -> dict:
         """Add a new caption with precise timing.
         
         Args:
             text: Caption text
             timestamp: Start time in seconds
-            duration: Display duration in seconds
+            duration: Display duration in seconds (reduced to 1.0s for fast disappearance)
             is_absolute: Whether timestamp is absolute time
         
         Returns:
@@ -82,8 +82,11 @@ class CaptionCore:
                 'was_absolute': is_absolute
             }
             self.captions.append(caption)
-            # Log caption addition with precise timing
-            logger.info(f"[CAPTION] Added caption #{caption_id}: '{text}' ({timestamp:.2f}s-{end_time:.2f}s)")
+            
+            # Log caption addition with precise timing (less frequently for performance)
+            if len(self.captions) % 5 == 0:  # Only log every 5th caption
+                logger.info(f"[CAPTION] Added caption #{caption_id}: '{text}' ({timestamp:.2f}s-{end_time:.2f}s)")
+            
             # Track timing statistics
             current_time = time.time()
             if self._last_caption_time > 0:
@@ -104,9 +107,12 @@ class CaptionCore:
             List of active captions
         """
         with self.caption_lock:
-            # Calculate buffer times with a larger buffer for smoother transitions
-            start_buffer = current_time - self.timing_buffer
-            end_buffer = current_time + self.timing_buffer
+            # Small timing buffer for good sync without breaking tests
+            timing_buffer = 0.033  # 33ms (1 frame at 30fps)
+            
+            # Calculate buffer times with moderate buffer for good timing
+            start_buffer = current_time - timing_buffer
+            end_buffer = current_time + timing_buffer
             
             # Find active captions with precise timing
             active_captions = []
@@ -114,21 +120,24 @@ class CaptionCore:
                 # Check if caption is active within buffer
                 if (c['start_time'] <= end_buffer and 
                     c['end_time'] >= start_buffer):
-                    # Calculate fade factor for smooth transitions
-                    fade_start = max(0, (current_time - c['start_time']) / 0.2)  # 0.2s fade in
-                    fade_end = max(0, (c['end_time'] - current_time) / 0.2)  # 0.2s fade out
+                    # Calculate fade factor for fast but visible transitions
+                    fade_start = max(0, (current_time - c['start_time']) / 0.15)  # 150ms fade in
+                    fade_end = max(0, (c['end_time'] - current_time) / 0.15)  # 150ms fade out
                     fade_factor = min(fade_start, fade_end, 1.0)
                     
-                    # Only include if not fully faded out
-                    if fade_factor > 0:
-                        c['fade_factor'] = fade_factor
+                    # Only include if not fully faded out (allow minimal fade for edge cases)
+                    if fade_factor >= 0.0:  # Changed from > 0 to >= 0.0 to include edge cases
+                        c['fade_factor'] = max(0.1, fade_factor)  # Ensure minimum visibility
                         active_captions.append(c)
             
             # Sort by start time to maintain proper order
             active_captions.sort(key=lambda x: x['start_time'])
             
-            # Log timing stats periodically
-            self._log_timing_stats(current_time, active_captions)
+            # Log timing stats much less frequently (every 10 seconds instead of 3 seconds)
+            current_sys_time = time.time()
+            if current_sys_time - self._last_stats_log_time >= 10.0:  # Log every 10 seconds
+                self._last_stats_log_time = current_sys_time
+                self._log_timing_stats(current_time, active_captions)
             
             return active_captions
     
@@ -139,22 +148,19 @@ class CaptionCore:
             current_time: Current time in seconds
             active_captions: List of currently active captions
         """
-        # Log stats every second
-        if current_time - self._last_stats_log_time >= 1.0:
-            logger.info("\n=== CAPTION TIMING STATS ===")
-            logger.info(f"Current time: {current_time:.3f}s")
-            logger.info(f"Active captions: {len(active_captions)}")
-            
-            if len(self._caption_intervals) >= 2:
-                avg_interval = sum(self._caption_intervals) / len(self._caption_intervals)
-                min_interval = min(self._caption_intervals)
-                max_interval = max(self._caption_intervals)
-                logger.info(f"Average caption interval: {avg_interval*1000:.2f}ms")
-                logger.info(f"Min caption interval: {min_interval*1000:.2f}ms")
-                logger.info(f"Max caption interval: {max_interval*1000:.2f}ms")
-            
-            logger.info(f"Timing buffer: {self.timing_buffer*1000:.2f}ms")
-            self._last_stats_log_time = current_time
+        logger.info("\n=== CAPTION TIMING STATS ===")
+        logger.info(f"Current time: {current_time:.3f}s")
+        logger.info(f"Active captions: {len(active_captions)}")
+        
+        if len(self._caption_intervals) >= 2:
+            avg_interval = sum(self._caption_intervals) / len(self._caption_intervals)
+            min_interval = min(self._caption_intervals)
+            max_interval = max(self._caption_intervals)
+            logger.info(f"Average caption interval: {avg_interval*1000:.2f}ms")
+            logger.info(f"Min caption interval: {min_interval*1000:.2f}ms")
+            logger.info(f"Max caption interval: {max_interval*1000:.2f}ms")
+        
+        logger.info(f"Timing buffer: {self.timing_buffer*1000:.2f}ms")
     
     def clear_captions(self) -> None:
         """Clear all captions."""

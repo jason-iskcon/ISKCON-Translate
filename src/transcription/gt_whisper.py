@@ -43,7 +43,7 @@ class GTWhisper:
                  glossary_path: Optional[str] = None,
                  glossary_dir: Optional[str] = None,
                  enable_post_correction: bool = True,
-                 context_window: int = 32):
+                 context_window: int = 64):
         """
         Initialize GT-Whisper.
         
@@ -304,8 +304,8 @@ Examples:
     parser.add_argument(
         "--context-window",
         type=int,
-        default=32,
-        help="Number of context words to use (default: 32)"
+        default=64,
+        help="Number of context words to use (default: 64)"
     )
     
     # Output options
