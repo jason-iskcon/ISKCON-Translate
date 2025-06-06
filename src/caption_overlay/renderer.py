@@ -33,9 +33,19 @@ class CaptionRenderer:
         # Color mapping for different languages - simplified to only supported languages
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary)
-            'fr': (150, 255, 255),     # Pale blue for French
+            'fr': (150, 255, 255),     # Pale blue for French - MUST BE PALE BLUE ONLY
             'ru': (255, 180, 180),     # Pale red for Russian
         }
+        
+        # SAFEGUARD: Absolutely NO yellow colors allowed anywhere
+        self.forbidden_colors = [
+            (255, 255, 0),   # Pure yellow
+            (255, 255, 100), # Light yellow variants
+            (255, 255, 150),
+            (255, 255, 200),
+            (200, 255, 100),
+            (150, 255, 100),
+        ]
         
         logger.debug(f"CaptionRenderer initialized with style: {self.style}")
     
@@ -50,7 +60,21 @@ class CaptionRenderer:
         """
         # Only support the three specified languages, default everything else to white
         if language in self.language_colors:
-            return self.language_colors[language]
+            color = self.language_colors[language]
+            
+            # SAFEGUARD: Check for forbidden yellow colors
+            if color in self.forbidden_colors:
+                logger.error(f"FORBIDDEN YELLOW COLOR DETECTED for language '{language}': {color}. Forcing to white!")
+                color = (255, 255, 255)  # Force to white
+            
+            # EXTRA SAFEGUARD: Explicitly ensure French is pale blue
+            if language == 'fr':
+                color = (150, 255, 255)  # Force French to pale blue
+                logger.debug(f"French color ENFORCED: {color}")
+            
+            # DEBUG: Log all color assignments
+            logger.debug(f"Color assignment: '{language}' -> {color}")
+            return color
         else:
             # Log unsupported language and default to white (NEVER yellow)
             logger.warning(f"UNSUPPORTED LANGUAGE CODE: '{language}' - defaulting to WHITE. Only 'en', 'fr', 'ru' are supported.")
@@ -116,7 +140,7 @@ class CaptionRenderer:
         return display_lines
     
     def calculate_text_dimensions(self, display_lines):
-        """Calculate dimensions for text block.
+        """Calculate dimensions for text block with proper Unicode support.
         
         Args:
             display_lines: List of text lines to measure
@@ -128,14 +152,40 @@ class CaptionRenderer:
         line_widths = []
         
         for line in display_lines:
-            (w, h), _ = cv2.getTextSize(
-                line, self.font, self.style.font_scale, self.style.font_thickness
-            )
-            line_heights.append(h)
-            line_widths.append(w)
+            # Check if line contains Unicode characters
+            has_unicode = any(ord(char) > 127 for char in line)
+            
+            if has_unicode:
+                # Use PIL for accurate Unicode text measurement
+                try:
+                    temp_img = Image.new('RGB', (100, 100))
+                    temp_draw = ImageDraw.Draw(temp_img)
+                    font = self._get_unicode_font(int(self.style.font_scale * 24))
+                    bbox = temp_draw.textbbox((0, 0), line, font=font)
+                    w = bbox[2] - bbox[0]
+                    h = bbox[3] - bbox[1]
+                    line_heights.append(h)
+                    line_widths.append(w)
+                except Exception as e:
+                    logger.warning(f"Failed PIL measurement for Unicode text, using OpenCV fallback: {e}")
+                    # Fallback to OpenCV
+                    (w, h), _ = cv2.getTextSize(
+                        line, self.font, self.style.font_scale, self.style.font_thickness
+                    )
+                    line_heights.append(h)
+                    line_widths.append(w)
+            else:
+                # Use OpenCV for ASCII text
+                (w, h), _ = cv2.getTextSize(
+                    line, self.font, self.style.font_scale, self.style.font_thickness
+                )
+                line_heights.append(h)
+                line_widths.append(w)
         
         total_text_height = sum(line_heights) + (len(display_lines) - 1) * (self.style.font_thickness + 2)
         max_text_width = max(line_widths) if line_widths else 0
+        
+        logger.debug(f"Text dimensions: {len(display_lines)} lines, max_width={max_text_width}, total_height={total_text_height}")
         
         return line_heights, line_widths, total_text_height, max_text_width
     
@@ -508,6 +558,9 @@ class CaptionRenderer:
         try:
             x, y = position
             
+            # DEBUG: Log what we're trying to render
+            logger.debug(f"Unicode rendering: lang='{language}', color={color}, text='{text[:20]}...'")
+            
             # Convert OpenCV frame (BGR) to PIL Image (RGB)
             pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(pil_image)
@@ -524,16 +577,21 @@ class CaptionRenderer:
                 self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # CRITICAL: Use the EXACT same Y coordinate as OpenCV to match background bounds
-            # Don't adjust Y positioning - this ensures text stays within background
-            adjusted_y = y
+            # Use PIL's textbbox to get EXACT text dimensions
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            # Adjust position to match OpenCV baseline positioning
+            # PIL uses top-left, OpenCV uses baseline, so adjust Y upward by text height
+            adjusted_y = y - text_height + (text_height // 4)  # Rough baseline adjustment
             
             # Draw text shadow (for better readability) - match OpenCV shadow offset
             shadow_offset = 2  # Same as OpenCV version
             shadow_color = (0, 0, 0)  # Black shadow
             draw.text((x + shadow_offset, adjusted_y + shadow_offset), text, font=font, fill=shadow_color)
             
-            # Draw main text at exact same position as OpenCV would
+            # Draw main text at adjusted position to match OpenCV baseline
             draw.text((x, adjusted_y), text, font=font, fill=color)
             
             # Convert back to OpenCV format (RGB to BGR)
