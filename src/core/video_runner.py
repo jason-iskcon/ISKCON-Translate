@@ -265,7 +265,7 @@ class VideoRunner:
             self.current_video_time = frame_timestamp
         
         # Process transcriptions much less frequently for better performance
-        if self.frame_count % 10 == 0:  # Check every 10th frame for better performance
+        if self.frame_count % 15 == 0:  # Check every 15th frame for much better performance (reduced from 10)
             self._process_transcriptions()
         
         # Calculate relative time with seek offset
@@ -985,7 +985,7 @@ class VideoRunner:
             logger.info(f"Starting high-performance playback at {target_fps}fps")
             
             # Frame processing optimization
-            max_frame_processing_time = frame_duration * 0.8  # Use 80% of frame time budget
+            max_frame_processing_time = frame_duration * 0.6  # Use 60% of frame time budget (reduced from 80%)
             frame_skip_count = 0
             
             while self.running:
@@ -1070,7 +1070,7 @@ class VideoRunner:
                         logger.warning(f"Frame processing exceeded budget: {frame_processing_time*1000:.1f}ms")
                     
                     # Reduced frequency logging
-                    if frame_count % 900 == 0:  # Every 30 seconds at 30fps
+                    if frame_count % 1800 == 0:  # Every 60 seconds at 30fps (reduced from 900)
                         self._log_timing_stats()
                 
                 # Precise timing control

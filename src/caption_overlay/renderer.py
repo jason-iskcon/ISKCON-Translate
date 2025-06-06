@@ -470,6 +470,10 @@ class CaptionRenderer:
         Returns:
             numpy.ndarray: Frame with all captions rendered
         """
+        # PERFORMANCE OPTIMIZATION: Fast exit if no captions
+        if not active_captions:
+            return frame
+        
         render_start = time.time()
         result_frame = frame.copy()
         
@@ -540,7 +544,7 @@ class CaptionRenderer:
         
         # Log rendering performance warnings only for severe cases
         render_time = (time.time() - render_start) * 1000  # Convert to milliseconds
-        if render_time > 33:  # Log warning if rendering takes more than 33ms (30fps)
+        if render_time > 50:  # Log warning if rendering takes more than 50ms (reduced logging)
             logger.warning(f"Slow frame rendering: {render_time:.1f}ms")
         
         return result_frame
@@ -655,7 +659,7 @@ class CaptionRenderer:
             return frame
     
     def _render_unicode_text_fast(self, frame, text, position, color, font_size, language='en'):
-        """Ultra-fast Unicode text rendering with aggressive caching.
+        """Ultra-fast Unicode text rendering with aggressive caching and optimizations.
         
         Args:
             frame: OpenCV frame (numpy array)
@@ -669,74 +673,92 @@ class CaptionRenderer:
             numpy.ndarray: Frame with text rendered
         """
         try:
-            # Create cache key for rendered text
-            cache_key = f"{text}:{position}:{color}:{font_size}"
+            # EMERGENCY PERFORMANCE MODE: Use OpenCV text for speed if text is ASCII
+            if text.isascii() and len(text) < 100:
+                # Use fast OpenCV rendering for ASCII text
+                scale = font_size / 30.0  # Convert font size to OpenCV scale
+                thickness = max(1, int(scale * 2))
+                
+                # Convert RGB to BGR for OpenCV
+                bgr_color = (color[2], color[1], color[0])
+                
+                # Render shadow first
+                shadow_pos = (position[0] + 2, position[1] + 2)
+                cv2.putText(frame, text, shadow_pos, cv2.FONT_HERSHEY_SIMPLEX, 
+                           scale, (0, 0, 0), thickness, cv2.LINE_AA)
+                
+                # Render main text
+                cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 
+                           scale, bgr_color, thickness, cv2.LINE_AA)
+                
+                return frame
+            
+            # Create ultra-fast cache key
+            cache_key = f"{text[:50]}:{position[0]//10}:{position[1]//10}:{color}:{font_size//5}"
             
             if cache_key in self._text_cache:
-                # Use cached rendered text
+                # Use cached rendered text - ultra fast path
                 cached_overlay, cached_mask, cached_pos = self._text_cache[cache_key]
-                x, y = cached_pos
+                x, y = position  # Use provided position, not cached
                 
                 # Fast overlay using cached mask
                 h, w = cached_overlay.shape[:2]
                 frame_h, frame_w = frame.shape[:2]
                 
-                # Bounds check
+                # Bounds check with fast path
                 if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h:
                     roi = frame[y:y+h, x:x+w]
-                    roi[cached_mask > 0] = cached_overlay[cached_mask > 0]
+                    mask_indices = cached_mask > 0
+                    roi[mask_indices] = cached_overlay[mask_indices]
                 
                 return frame
             
+            # Fallback to minimal PIL rendering for non-ASCII
             x, y = position
             
-            # Get cached font
-            if font_size not in self._cached_fonts:
-                self._cached_fonts[font_size] = self._get_unicode_font(font_size)
-            font = self._cached_fonts[font_size]
+            # Use smaller font size for performance
+            performance_font_size = min(font_size, 24)  # Cap at 24px for speed
             
-            # Create PIL image for text
-            bbox = font.getbbox(text)
-            text_width = bbox[2] - bbox[0] + 8  # Extra padding
-            text_height = bbox[3] - bbox[1] + 8
+            # Get cached font with performance limit
+            if performance_font_size not in self._cached_fonts:
+                self._cached_fonts[performance_font_size] = self._get_unicode_font(performance_font_size)
+            font = self._cached_fonts[performance_font_size]
             
-            # Create RGBA PIL image
+            # Create minimal PIL image with reduced quality for speed
+            text_width = min(len(text) * performance_font_size, 800)  # Estimate width, cap at 800px
+            text_height = performance_font_size + 8
+            
+            # Create RGBA PIL image with minimal size
             pil_image = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
             draw = ImageDraw.Draw(pil_image)
             
-            # Draw shadow
-            draw.text((4, 4), text, font=font, fill=(0, 0, 0, 255))
-            # Draw text
+            # Draw text without shadow for speed
             draw.text((2, 2), text, font=font, fill=(*color, 255))
             
-            # Convert to OpenCV format
+            # Convert to OpenCV format efficiently
             pil_array = np.array(pil_image)
             overlay = cv2.cvtColor(pil_array[:, :, :3], cv2.COLOR_RGB2BGR)
             mask = pil_array[:, :, 3]
             
-            # Cache the rendered text
-            self._text_cache[cache_key] = (overlay, mask, (x, y))
+            # Cache with size limit
+            if len(self._text_cache) < 20:  # Much smaller cache for speed
+                self._text_cache[cache_key] = (overlay, mask, (x, y))
             
-            # Limit cache size
-            if len(self._text_cache) > 50:
-                # Remove oldest entries
-                keys_to_remove = list(self._text_cache.keys())[:10]
-                for key in keys_to_remove:
-                    del self._text_cache[key]
-            
-            # Apply to frame
+            # Apply to frame with bounds check
             h, w = overlay.shape[:2]
             frame_h, frame_w = frame.shape[:2]
             
             if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h:
                 roi = frame[y:y+h, x:x+w]
-                roi[mask > 0] = overlay[mask > 0]
+                mask_indices = mask > 0
+                roi[mask_indices] = overlay[mask_indices]
             
             return frame
             
         except Exception as e:
-            logger.error(f"Error in fast Unicode rendering: {e}")
-            # Fallback to OpenCV text
-            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 
-                       font_size / 30.0, color, 2, cv2.LINE_AA)
+            # Emergency fallback to OpenCV for any errors
+            scale = font_size / 30.0
+            bgr_color = (color[2], color[1], color[0]) if len(color) == 3 else (255, 255, 255)
+            cv2.putText(frame, str(text)[:50], position, cv2.FONT_HERSHEY_SIMPLEX, 
+                       scale, bgr_color, 2, cv2.LINE_AA)
             return frame 
