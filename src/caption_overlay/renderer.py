@@ -33,7 +33,7 @@ class CaptionRenderer:
         # Color mapping for different languages - BGR format for OpenCV
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary) - BGR
-            'fr': (255, 200, 150),     # Pale blue for French - BGR
+            'fr': (150, 200, 255),     # Light blue for French - BGR (FIXED from problematic yellow)
             'de': (0, 255, 255),       # Yellow for German - BGR (requested by user)
             'it': (0, 165, 255),       # Orange for Italian - BGR
             'hu': (0, 255, 0),         # Green for Hungarian - BGR
@@ -223,10 +223,10 @@ class CaptionRenderer:
         # Smart spacing calculation - minimal gaps for tight display
         if line_count > 1:
             # Multi-line captions need minimal extra space
-            base_spacing = bg_height + 2  # Reduced from 8 to 2
+            base_spacing = bg_height + 1  # Reduced from 2 to 1
         else:
             # Single line captions should be very tight
-            base_spacing = bg_height + 1  # Reduced from 4 to 1
+            base_spacing = bg_height + 1  # Keep at 1
             
         # Calculate vertical position with intelligent spacing
         if caption_index == 0:
@@ -234,21 +234,21 @@ class CaptionRenderer:
             bg_y2 = frame_height - base_margin
             bg_y1 = bg_y2 - bg_height
         else:
-            # Secondary captions stacked above with dynamic spacing
-            # Check if previous captions were multi-line to adjust spacing
+            # Secondary captions stacked above with VERY tight spacing
+            # Reduced spacing for closer captions
             accumulated_height = base_margin + bg_height
             
             for i in range(caption_index):
-                # Add spacing for each previous caption
-                prev_spacing = base_spacing
+                # Minimal spacing for each previous caption
+                prev_spacing = 3  # Ultra-tight 3px spacing (reduced from base_spacing)
                 
-                # If we have active caption info, use actual heights
+                # If we have active caption info, use actual heights but keep tight
                 if active_captions and i < len(active_captions):
                     prev_caption = active_captions[i]
                     prev_lines = self.process_caption_text(prev_caption.get('text', ''))
                     if len(prev_lines) > 1:
                         # Previous caption was multi-line, add minimal extra space
-                        prev_spacing += 2  # Reduced from 5 to 2
+                        prev_spacing += 1  # Reduced from 2 to 1
                 
                 accumulated_height += prev_spacing
             
@@ -330,12 +330,6 @@ class CaptionRenderer:
         try:
             # Get language-specific color
             text_color = self.language_colors.get(language, self.language_colors['en'])  # Fallback to English color
-            
-            # Color debugging and validation for specific issues
-            if language == 'fr' and text_color == (255, 255, 150):
-                logger.error(f"FORBIDDEN YELLOW COLOR DETECTED for language '{language}': {text_color}. Forcing to white!")
-                text_color = (255, 255, 255)  # Force to white
-                logger.error(f"🚨 YELLOW COLOR DETECTED for language '{language}': {text_color}")
             
             logger.debug(f"[RENDER_TEXT_LINE] Rendering '{line[:30]}...' at ({x}, {y}) in {language} with color {text_color}")
         except Exception as e:
@@ -590,14 +584,19 @@ class CaptionRenderer:
             # Use video dimension-aware font size instead of hardcoded size
             opencv_equivalent_size = self.style.get_scaled_font_size()
             
-            # Get Unicode font (cache for better performance)
+            # Optimized font caching - cache by size only, not size+language
             if not hasattr(self, '_cached_fonts'):
                 self._cached_fonts = {}
             
-            font_key = f"{opencv_equivalent_size}_{language}"
-            if font_key not in self._cached_fonts:
-                self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
-            font = self._cached_fonts[font_key]
+            if opencv_equivalent_size not in self._cached_fonts:
+                self._cached_fonts[opencv_equivalent_size] = self._get_unicode_font(opencv_equivalent_size)
+                # Limit cache size for memory efficiency
+                if len(self._cached_fonts) > 5:
+                    # Remove oldest cache entry
+                    oldest_key = next(iter(self._cached_fonts))
+                    del self._cached_fonts[oldest_key]
+            
+            font = self._cached_fonts[opencv_equivalent_size]
             
             # CRITICAL FIX: Use the SAME positioning logic as OpenCV for consistency
             # The key insight: text_y from calculate_text_position is the TOP of the text area

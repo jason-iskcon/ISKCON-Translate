@@ -50,6 +50,12 @@ class VideoRunner:
         self.secondary_languages = secondary_languages or []
         self.primary_language = primary_language
         
+        # Playback control
+        self.running = True
+        self.paused = False
+        self.pause_start_time = 0.0
+        self.total_pause_duration = 0.0
+        
         # Create list of all target languages for translation
         self.target_languages = []
         
@@ -114,7 +120,7 @@ class VideoRunner:
         self._last_no_transcription_log_time = 0.0
         
         # Caption timing offset for better sync - reduce early timing for better audio sync
-        self.caption_timing_offset = -0.025  # 25ms early for better lip sync (reduced from 50ms)
+        self.caption_timing_offset = 0.0  # Immediate captions (reduced from -0.025 for instant startup)
         
         # Initialize text processing components
         try:
@@ -331,19 +337,33 @@ class VideoRunner:
             # Get current video relative time for validation
             current_video_time = self.current_video_time - self.video_source.start_time
             
-            # CRITICAL: Clear ALL captions to prevent 6-caption problem
-            # AGGRESSIVE APPROACH: Clear everything and start fresh to ensure exactly 3 captions
+            # CRITICAL: Smart caption deduplication instead of clearing all
+            # Only clear captions that would create exact duplicates, not all captions
             try:
-                # Clear ALL existing captions to prevent any duplication
-                # This ensures we only ever have exactly 3 captions (en + fr + ru)
-                total_captions_before = len(self.caption_overlay.captions)
-                self.caption_overlay.clear_captions()
+                # Get current active captions
+                current_video_time_rel = self.current_video_time - self.video_source.start_time
+                active_captions = self.caption_overlay.get_active_captions(current_video_time_rel)
                 
-                if total_captions_before > 0:
-                    logger.debug(f"🚨 CLEARED ALL {total_captions_before} CAPTIONS to prevent duplication")
+                # Check for recent similar captions to prevent duplication
+                duplicate_found = False
+                for active_cap in active_captions:
+                    if (abs(active_cap.get('start_time', 0) - rel_start_adjusted) < 2.0 and  # Within 2 seconds
+                        active_cap.get('language', '') == 'en' and  # Same language
+                        len(set(active_cap.get('text', '').split()) & set(text.split())) > 3):  # Similar words
+                        duplicate_found = True
+                        logger.debug(f"🚨 DUPLICATE DETECTED: Skipping similar caption")
+                        break
+                
+                if duplicate_found:
+                    return  # Skip adding this caption
+                
+                # Smart pruning: only remove captions that ended more than 3 seconds ago
+                pruned_count = self.caption_overlay.prune_captions(current_video_time_rel, buffer=3.0)
+                if pruned_count > 0:
+                    logger.debug(f"🧹 PRUNED {pruned_count} old captions")
                                 
             except Exception as e:
-                logger.warning(f"Failed to clear captions: {e}")
+                logger.warning(f"Failed to perform smart caption deduplication: {e}")
             
             logger.debug(f"🚨 CAPTION TIMING: rel_start={rel_start_adjusted:.2f}s, duration={duration:.2f}s, end={rel_start_adjusted + duration:.2f}s, current_video={current_video_time:.2f}s")
             
@@ -354,7 +374,7 @@ class VideoRunner:
             
             # Validate the timestamp is within reasonable bounds (allow captions from recent past and near future)
             time_diff = rel_start - current_video_time
-            if time_diff < -30.0 or time_diff > 60.0:  # Allow 30s past, 60s future
+            if time_diff < -10.0 or time_diff > 30.0:  # Reduced from -30s/60s to -10s/30s for more responsive captions
                 logger.warning(f"[TIMING] Caption timing out of bounds ({time_diff:.2f}s difference), dropping")
                 return
             
@@ -930,6 +950,25 @@ class VideoRunner:
         
         return corrected_text
     
+    def _handle_key_press(self, key):
+        """Handle keyboard input for playback control.
+        
+        Args:
+            key: Key code from cv2.waitKey()
+        """
+        if key == ord('q') or key == 27:  # 'q' or ESC
+            logger.info("Quit key pressed - stopping playback")
+            self.running = False
+        elif key == ord('p') or key == 32:  # 'p' or SPACE
+            self.paused = not self.paused
+            if self.paused:
+                self.pause_start_time = time.perf_counter()
+                logger.info("Playback paused")
+            else:
+                pause_duration = time.perf_counter() - self.pause_start_time
+                self.total_pause_duration += pause_duration
+                logger.info(f"Playback resumed (paused for {pause_duration:.2f}s)")
+    
     def run(self):
         """Run the main video playback and synchronization loop."""
         try:
@@ -939,34 +978,46 @@ class VideoRunner:
             target_fps = self.video_source.fps
             frame_duration = 1.0 / target_fps
             
-            # Optimize frame timing for smoother playback
-            skip_threshold = 1  # Only skip if we're more than 1 frame behind for ultra-smooth playback
-            max_skip_per_loop = 1  # Skip only 1 frame at a time to maintain ultra-smooth video quality
+            logger.info(f"Starting playback at {target_fps}fps (frame duration: {frame_duration*1000:.2f}ms)")
             
-            while True:
-                current_time = time.perf_counter()
-                elapsed_time = current_time - start_time
-                expected_frame = int(elapsed_time * target_fps)
+            # Much more conservative frame skipping for ultra-smooth playback
+            skip_threshold = 2  # Only skip if we're 2+ frames behind
+            max_skip_per_loop = 1  # Never skip more than 1 frame
+            
+            while self.running:
+                loop_start = time.perf_counter()
                 
-                # Calculate how many frames we're behind
+                # Handle pause
+                if self.paused:
+                    if not self.headless:
+                        # Show paused frame and handle keys
+                        key = cv2.waitKey(30) & 0xFF
+                        if key != 255:  # Key was pressed
+                            self._handle_key_press(key)
+                    time.sleep(0.1)  # Sleep while paused
+                    continue
+                
+                # Calculate timing
+                elapsed_time = loop_start - start_time - self.total_pause_duration
+                expected_frame = int(elapsed_time * target_fps)
                 frames_behind = expected_frame - frame_count
                 
-                # Only skip frames if we're significantly behind (ultra-conservative for smoothness)
+                # Only skip frames if significantly behind (ultra-conservative)
                 if frames_behind > skip_threshold:
-                    # Skip frames by getting multiple frames quickly, but limit to maintain smoothness
                     skipped = 0
-                    while skipped < frames_behind and skipped < max_skip_per_loop:  # Ultra-limited skips for smoothest video
+                    while skipped < min(frames_behind, max_skip_per_loop):
                         frame_data = self.video_source.get_frame()
                         if frame_data is None:
+                            self.running = False
                             break
                         skipped += 1
                         frame_count += 1
                     
                     if skipped > 0:
-                        logger.debug(f"Skipped {skipped} frames for ultra-smooth playback")
+                        logger.debug(f"Skipped {skipped} frames for smooth playback")
                 
                 # Process the current frame
-                if frame_count <= expected_frame:
+                if self.running and frame_count <= expected_frame:
                     # Get the next frame
                     frame_data = self.video_source.get_frame()
                     if frame_data is None:
@@ -977,7 +1028,7 @@ class VideoRunner:
                     
                     # Display the frame only if not in headless mode
                     if not self.headless:
-                        # Resize frame for display if needed (optimize by checking less frequently)
+                        # Resize frame for display if needed
                         if hasattr(self, 'display_width') and hasattr(self, 'display_height'):
                             frame_height, frame_width = frame.shape[:2]
                             if frame_width != self.display_width or frame_height != self.display_height:
@@ -985,20 +1036,25 @@ class VideoRunner:
                                 frame = cv2.resize(frame, (self.display_width, self.display_height), interpolation=cv2.INTER_LINEAR)
                         
                         cv2.imshow(self.window_name, frame)
+                        
+                        # Handle key press with minimal delay
+                        key = cv2.waitKey(1) & 0xFF
+                        if key != 255:  # Key was pressed
+                            self._handle_key_press(key)
+                            if not self.running:
+                                break
                     
                     frame_count += 1
                     self.frame_count = frame_count
                     
-                    # Log timing info much less frequently for better performance
-                    if frame_count % 300 == 0:  # Every 10 seconds at 30fps instead of every 3 seconds
+                    # Log timing info less frequently for better performance
+                    if frame_count % 600 == 0:  # Every 20 seconds at 30fps
                         self._log_timing_stats()
-                    
-                    # Handle key press only if not in headless mode
-                    if not self.headless and cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
-                else:
-                    # Sleep for a very short time to avoid busy waiting
-                    time.sleep(0.001)  # 1ms sleep
+                
+                # Micro-sleep for smooth timing without busy waiting
+                loop_duration = time.perf_counter() - loop_start
+                if loop_duration < frame_duration:
+                    time.sleep(max(0.001, frame_duration - loop_duration))
             
         finally:
             if not self.headless:
