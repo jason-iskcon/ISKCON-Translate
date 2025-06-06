@@ -330,13 +330,24 @@ class VideoRunner:
             # CRITICAL: Clear any overlapping captions to prevent 6-caption problem
             # Remove captions that would overlap with this new one to prevent stacking
             try:
-                # Use the new remove_overlapping_captions method for efficiency
+                # AGGRESSIVE APPROACH: Remove all recent captions to ensure clean replacement
+                # This prevents multiple transcription segments from showing simultaneously
+                current_video_time_rel = self.current_video_time - self.video_source.start_time
+                
+                # Remove any caption that's still active or will be active soon
+                # Use a larger buffer to ensure clean caption transitions
+                removal_buffer = 2.0  # 2 seconds buffer for clean transitions
                 new_start = rel_start_adjusted
                 new_end = rel_start_adjusted + duration
-                removed_count = self.caption_overlay.remove_overlapping_captions(new_start, new_end)
+                
+                # Remove captions in a wider time range to prevent overlaps
+                removal_start = max(0, new_start - removal_buffer)
+                removal_end = new_end + removal_buffer
+                
+                removed_count = self.caption_overlay.remove_overlapping_captions(removal_start, removal_end)
                 
                 if removed_count > 0:
-                    logger.debug(f"🚨 REMOVED {removed_count} OVERLAPPING CAPTIONS before adding new caption at {new_start:.2f}-{new_end:.2f}s")
+                    logger.debug(f"🚨 REMOVED {removed_count} OVERLAPPING CAPTIONS in range {removal_start:.2f}-{removal_end:.2f}s to prevent 6-caption problem")
                                 
             except Exception as e:
                 logger.warning(f"Failed to remove overlapping captions: {e}")
@@ -424,6 +435,18 @@ class VideoRunner:
                 
                 if self.frame_count % 30 == 0:  # Only log success every 30 frames
                     logger.info("[CAPTION] All languages added CONCURRENTLY")
+                
+                # VALIDATION: Check that we only added exactly 3 captions (en + fr + ru)
+                expected_caption_count = 1 + len(target_languages)  # 1 English + target languages
+                current_video_time_rel = self.current_video_time - self.video_source.start_time
+                active_captions = self.caption_overlay.get_active_captions(current_video_time_rel)
+                
+                if len(active_captions) > expected_caption_count:
+                    logger.error(f"🚨 CAPTION VALIDATION FAILED: Expected {expected_caption_count} captions but found {len(active_captions)}")
+                    for i, cap in enumerate(active_captions):
+                        lang = cap.get('language', 'UNKNOWN')
+                        logger.error(f"   Active caption {i+1}: lang='{lang}', text='{cap.get('text', '')[:30]}...'")
+                        
             except Exception as e:
                 logger.error(f"Error adding caption: {e}")
                 

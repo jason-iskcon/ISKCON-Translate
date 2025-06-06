@@ -30,19 +30,18 @@ class CaptionRenderer:
         self.style = style_config or CaptionStyleConfig()
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         
-        # Color mapping for different languages - simplified to only supported languages
+        # Color mapping for different languages - BGR format for OpenCV
         self.language_colors = {
-            'en': (255, 255, 255),     # White for English (primary)
-            'fr': (150, 255, 255),     # Pale blue for French - MUST BE PALE BLUE ONLY
-            'ru': (255, 192, 203),     # Pale pink for Russian (was too red/purple before)
+            'en': (255, 255, 255),     # White for English (primary) - BGR
+            'fr': (255, 200, 150),     # Pale blue for French - BGR (changed from 255,255,150 to avoid yellow)
+            'ru': (203, 192, 255),     # Pale pink for Russian - BGR
         }
         
         # SAFEGUARD: Absolutely NO yellow colors allowed anywhere
         self.forbidden_colors = [
             (255, 255, 0),   # Pure yellow
-            (255, 255, 100), # Light yellow variants
-            (255, 255, 150),
-            (255, 255, 200),
+            (255, 255, 100), # Light yellow variants  
+            (255, 255, 200), # Removed (255, 255, 150) as it conflicts with French
             (200, 255, 100),
             (150, 255, 100),
         ]
@@ -69,8 +68,13 @@ class CaptionRenderer:
             
             # EXTRA SAFEGUARD: Explicitly ensure French is pale blue
             if language == 'fr':
-                color = (150, 255, 255)  # Force French to pale blue
-                logger.debug(f"French color ENFORCED: {color}")
+                color = (255, 200, 150)  # Force French to pale blue in BGR format (updated color)
+                logger.debug(f"French color ENFORCED: {color} (BGR format)")
+            
+            # EXTRA SAFEGUARD: Explicitly ensure Russian is pale pink  
+            if language == 'ru':
+                color = (203, 192, 255)  # Force Russian to pale pink in BGR format
+                logger.debug(f"Russian color ENFORCED: {color} (BGR format)")
             
             # DEBUG: Log all color assignments
             logger.debug(f"Color assignment: '{language}' -> {color}")
@@ -317,17 +321,32 @@ class CaptionRenderer:
         # Get language-specific color
         text_color = self.get_language_color(language)
         
+        # CRITICAL DEBUG: Log all color assignments to catch yellow colors
+        if language == 'fr' and text_color != (255, 200, 150):
+            logger.error(f"🚨 FRENCH COLOR WRONG! Expected (255,200,150) but got {text_color}")
+        if language == 'ru' and text_color != (203, 192, 255):
+            logger.error(f"🚨 RUSSIAN COLOR WRONG! Expected (203,192,255) but got {text_color}")
+        
+        # DETECT YELLOW COLORS - log any yellow-like colors
+        r, g, b = text_color
+        if g > 200 and b < 200:  # Yellow-like colors have high green, low blue
+            logger.error(f"🚨 YELLOW COLOR DETECTED for language '{language}': {text_color}")
+        
         # TEMPORARY DEBUG: Log color and language for debugging yellow text issue
+        logger.debug(f"RENDER_TEXT_LINE: lang='{language}' color={text_color} text='{line[:15]}...'")
         if language not in ['en', 'fr', 'ru']:
             logger.warning(f"DEBUG: Unexpected language '{language}' with color {text_color} for text: '{line[:30]}...'")
         
         if uses_unicode_rendering:
             # Use PIL-based Unicode rendering
-            # Convert BGR to RGB for PIL
+            # Convert BGR to RGB for PIL (our colors are stored in BGR format)
             rgb_color = (text_color[2], text_color[1], text_color[0])
             
             # Apply fade factor to color
             faded_color = tuple(int(c * fade_factor) for c in rgb_color)
+            
+            # DEBUG: Log color conversion for debugging
+            logger.debug(f"Color conversion for {language}: BGR{text_color} -> RGB{rgb_color} -> faded{faded_color}")
             
             # Use the same font scale as OpenCV for consistency
             opencv_equivalent_size = int(self.style.font_scale * 24)
@@ -350,25 +369,20 @@ class CaptionRenderer:
                 cv2.LINE_AA
             )
             
-            # Prepare color with fade factor
-            text_color_list = list(text_color)
-            if len(text_color_list) == 3:  # If no alpha channel, add one
-                text_color_list = text_color_list + [255]  # Fully opaque by default
+            # Apply fade factor directly to BGR color (no conversion needed for OpenCV)
+            faded_color = tuple(int(c * fade_factor) for c in text_color)
             
-            # Apply fade factor to alpha channel
-            text_color_list[3] = int(text_color_list[3] * fade_factor)
+            # DEBUG: Log OpenCV color application
+            logger.debug(f"OpenCV rendering for {language}: original{text_color} -> faded{faded_color}")
             
-            # Convert to BGR for OpenCV
-            bgr_color = tuple(text_color_list[2::-1])  # Convert RGB to BGR and remove alpha
-            
-            # Draw the text
+            # Draw the text with faded color
             cv2.putText(
                 frame, 
                 line, 
                 (x, y),
                 self.font, 
                 self.style.font_scale, 
-                bgr_color,
+                faded_color,  # Use BGR color directly
                 self.style.font_thickness, 
                 cv2.LINE_AA
             )
@@ -589,7 +603,12 @@ class CaptionRenderer:
             draw = ImageDraw.Draw(pil_image)
             
             # Calculate font size to match OpenCV rendering exactly
-            opencv_equivalent_size = int(self.style.font_scale * 24)
+            # OpenCV uses font_scale directly, PIL needs pixel size
+            # Use same calculation as in render_text_line for consistency
+            opencv_equivalent_size = max(16, int(self.style.font_scale * 30))  # Increased base size for better matching
+            
+            # DEBUG: Log font size calculation
+            logger.debug(f"Font size calculation: font_scale={self.style.font_scale}, opencv_size={opencv_equivalent_size}")
             
             # Get Unicode font (cache for better performance)
             if not hasattr(self, '_cached_fonts'):
@@ -600,17 +619,39 @@ class CaptionRenderer:
                 self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # CRITICAL FIX: Use the EXACT same Y position as OpenCV to stay within background
-            # No Y adjustment - this ensures the text stays within the calculated background bounds
-            adjusted_y = y
-            logger.debug(f"Russian text position: original_y={y}, adjusted_y={adjusted_y}")
+            # CRITICAL FIX: Ensure Russian text position matches OpenCV baseline exactly
+            # OpenCV y is baseline, PIL y is top-left. Need to convert properly.
+            # Get text metrics for accurate positioning
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
             
-            # Draw text shadow (for better readability) - match OpenCV shadow offset
+            # OpenCV baseline is approximately 80% from the top of the text height
+            # But we need to account for descenders and ensure text fits in background
+            descent = font.getmetrics()[1] if hasattr(font, 'getmetrics') else text_height * 0.2
+            
+            # Calculate PIL top position from OpenCV baseline position
+            # y (OpenCV baseline) - text_height + descent = PIL top position
+            adjusted_y = y - text_height + descent
+            
+            # ENSURE text stays within reasonable bounds (don't go off screen)
+            adjusted_y = max(5, adjusted_y)  # At least 5 pixels from top
+            
+            # DEBUG: Log detailed positioning calculation
+            logger.debug(f"Russian positioning: opencv_baseline={y}, text_h={text_height}, descent={descent:.1f}")
+            logger.debug(f"Russian positioning: calculated_top={y - text_height + descent:.1f}, final_y={adjusted_y}")
+            
+            # Ensure text doesn't interfere with background calculation
+            if adjusted_y < 0:
+                adjusted_y = 5  # Force minimum distance from top
+                logger.warning(f"Russian text positioned too high, moved to y={adjusted_y}")
+            
+            # Draw text shadow first (for better readability)
             shadow_offset = 2  # Same as OpenCV version
             shadow_color = (0, 0, 0)  # Black shadow
             draw.text((x + shadow_offset, adjusted_y + shadow_offset), text, font=font, fill=shadow_color)
             
-            # Draw main text at same position as OpenCV calculation
+            # Draw main text at calculated position
             draw.text((x, adjusted_y), text, font=font, fill=color)
             
             # Convert back to OpenCV format (RGB to BGR)
