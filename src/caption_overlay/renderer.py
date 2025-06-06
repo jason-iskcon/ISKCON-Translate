@@ -521,11 +521,9 @@ class CaptionRenderer:
                 self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # Adjust Y position to match OpenCV baseline positioning
-            # OpenCV uses baseline positioning, PIL uses top-left, so we need to adjust
-            text_bbox = draw.textbbox((0, 0), text, font=font)
-            text_height = text_bbox[3] - text_bbox[1]
-            adjusted_y = y - text_height  # Move up by text height to match OpenCV baseline
+            # Try matching OpenCV positioning exactly - use the same Y coordinate
+            # This should eliminate white space issues
+            adjusted_y = y  # Use the same Y as OpenCV for now
             
             # Draw text shadow (for better readability) - match OpenCV shadow offset
             shadow_offset = 2  # Same as OpenCV version
