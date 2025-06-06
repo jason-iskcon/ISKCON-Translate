@@ -337,7 +337,7 @@ class CaptionRenderer:
         return frame
     
     def render_text_line(self, frame, line, x, y, fade_factor, language='en'):
-        """Render a single line of text using fast cached rendering.
+        """EMERGENCY DEMO MODE: Ultra-fast OpenCV-only text rendering.
         
         Args:
             frame: Video frame to render on
@@ -354,24 +354,39 @@ class CaptionRenderer:
             return frame
         
         try:
+            # EMERGENCY MODE: Use only OpenCV for maximum speed
             # Get language-specific color
             text_color = self.language_colors.get(language, self.language_colors['en'])
             
-            # Convert BGR to RGB for PIL
-            rgb_color = (text_color[2], text_color[1], text_color[0])
+            # Convert BGR to OpenCV format and apply fade
+            bgr_color = (
+                int(text_color[0] * fade_factor),
+                int(text_color[1] * fade_factor), 
+                int(text_color[2] * fade_factor)
+            )
             
-            # Apply fade factor
-            faded_color = tuple(int(c * fade_factor) for c in rgb_color)
+            # Use fixed OpenCV settings for speed
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 0.8  # Fixed scale for speed
+            thickness = 2
             
-            # Use video dimension-aware font size
-            pil_font_size = self.style.get_scaled_font_size()
+            # Calculate text position for OpenCV (baseline positioning)
+            text_size = cv2.getTextSize(line, font, scale, thickness)[0]
+            baseline_y = y + text_size[1] + 5  # Convert from top-left to baseline
             
-            # Use fast cached rendering
-            result_frame = self._render_unicode_text_fast(frame, line, (x, y), faded_color, pil_font_size, language)
-            return result_frame
+            # Render shadow first (for readability)
+            shadow_pos = (x + 2, baseline_y + 2)
+            cv2.putText(frame, line, shadow_pos, font, scale, (0, 0, 0), thickness, cv2.LINE_AA)
+            
+            # Render main text
+            cv2.putText(frame, line, (x, baseline_y), font, scale, bgr_color, thickness, cv2.LINE_AA)
+            
+            return frame
             
         except Exception as e:
-            logger.error(f"Error in render_text_line: {e}")
+            # Emergency fallback
+            cv2.putText(frame, str(line)[:50], (x, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 
+                       0.6, (255, 255, 255), 2, cv2.LINE_AA)
             return frame
     
     def render_caption(self, frame, caption, current_time, caption_index=0, language='en', all_active_captions=None):
@@ -470,31 +485,15 @@ class CaptionRenderer:
         Returns:
             numpy.ndarray: Frame with all captions rendered
         """
+        # EMERGENCY DEMO MODE: Disable all slow logging and validation
+        # Skip expensive caption counting and duplicate detection for speed
+        
         # PERFORMANCE OPTIMIZATION: Fast exit if no captions
         if not active_captions:
             return frame
         
-        render_start = time.time()
+        # EMERGENCY: Skip all logging for maximum performance
         result_frame = frame.copy()
-        
-        # CRITICAL DEBUG: Log exactly what captions we're trying to render
-        if len(active_captions) > 3:
-            logger.error(f"🚨 PROBLEM: {len(active_captions)} captions detected! Expected only 3 (en, fr, ru)")
-            for i, cap in enumerate(active_captions):
-                lang = cap.get('language', 'UNKNOWN')
-                text = cap.get('text', '')[:30]
-                logger.error(f"   Caption {i+1}: lang='{lang}', text='{text}...'")
-        
-        # Reduce debug logging frequency to improve performance
-        should_log = len(active_captions) > 0 and (int(current_time * 10) % 10 == 0)  # Log once per second
-        
-        if should_log:
-            logger.debug(f"[RENDER] Rendering {len(active_captions)} captions at time {current_time:.3f}s")
-            # Debug each caption
-            for i, cap in enumerate(active_captions):
-                lang = cap.get('language', 'UNKNOWN')
-                text = cap.get('text', '')[:20]
-                logger.debug(f"   Caption {i}: lang='{lang}', text='{text}...'")
         
         # Sort captions by start time (oldest first) to maintain proper stacking order
         active_captions = sorted(active_captions, key=lambda x: x['start_time'])
@@ -502,16 +501,6 @@ class CaptionRenderer:
         # Separate primary and secondary language captions for proper layering
         primary_captions = [c for c in active_captions if c.get('is_primary', True)]
         secondary_captions = [c for c in active_captions if not c.get('is_primary', True)]
-        
-        # ADDITIONAL DEBUG: Check for duplicates
-        lang_counts = {}
-        for cap in active_captions:
-            lang = cap.get('language', 'UNKNOWN')
-            lang_counts[lang] = lang_counts.get(lang, 0) + 1
-        
-        for lang, count in lang_counts.items():
-            if count > 1:
-                logger.error(f"🚨 DUPLICATE LANGUAGE DETECTED: '{lang}' appears {count} times!")
         
         # Process each active caption
         rendered_count = 0
@@ -537,15 +526,6 @@ class CaptionRenderer:
                 caption_index = len(primary_captions) + i
                 result_frame = self.render_caption(result_frame, caption, current_time, caption_index=caption_index, language=language, all_active_captions=active_captions)
                 rendered_count += 1
-        
-        if should_log and rendered_count > 0:
-            languages_rendered = set(c.get('language', 'en') for c in active_captions if self.calculate_fade_factor(c, current_time) > 0.05)
-            logger.debug(f"[RENDER] Rendered {rendered_count}/{len(active_captions)} captions in languages: {languages_rendered}")
-        
-        # Log rendering performance warnings only for severe cases
-        render_time = (time.time() - render_start) * 1000  # Convert to milliseconds
-        if render_time > 50:  # Log warning if rendering takes more than 50ms (reduced logging)
-            logger.warning(f"Slow frame rendering: {render_time:.1f}ms")
         
         return result_frame
     
