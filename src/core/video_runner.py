@@ -251,33 +251,21 @@ class VideoRunner:
         return frame_time
     
     def _process_frame(self, frame_data):
-        """Process a single frame and apply captions."""
+        """Process a single frame and apply captions with optimized timing."""
         frame, frame_timestamp = frame_data
         
         # Get current audio position for synchronization
         with self.video_source.audio_position_lock:
             current_audio_time = self.video_source.audio_position
         
-        # Use audio time for better synchronization
+        # Use audio time for most accurate synchronization
         if self.video_source.audio_playing and current_audio_time > 0:
-            # Use audio time directly for most accurate sync
             self.current_video_time = current_audio_time
         else:
-            # Fall back to frame timestamp if no audio
             self.current_video_time = frame_timestamp
         
-        # Calculate frame timing for performance monitoring
-        now = time.perf_counter()
-        frame_delay = now - self.last_frame_time
-        self.last_frame_time = now
-        
-        # Track frame timing for analysis (keep smaller buffer)
-        self.frame_times.append(frame_delay)
-        if len(self.frame_times) > 30:  # Keep last 30 frames only
-            self.frame_times.pop(0)
-        
-        # Process transcriptions less frequently to improve performance
-        if self.frame_count % 5 == 0:  # Check every 5th frame for much better performance
+        # Process transcriptions much less frequently for better performance
+        if self.frame_count % 10 == 0:  # Check every 10th frame for better performance
             self._process_transcriptions()
         
         # Calculate relative time with seek offset
@@ -972,74 +960,87 @@ class VideoRunner:
     def run(self):
         """Run the main video playback and synchronization loop."""
         try:
-            # Initialize timing variables
+            # Initialize high-precision timing
             start_time = time.perf_counter()
             frame_count = 0
             target_fps = self.video_source.fps
             frame_duration = 1.0 / target_fps
             
-            logger.info(f"Starting playback at {target_fps}fps (frame duration: {frame_duration*1000:.2f}ms)")
+            logger.info(f"Starting high-performance playback at {target_fps}fps")
             
-            # Much more conservative frame skipping for ultra-smooth playback
-            skip_threshold = 2  # Only skip if we're 2+ frames behind
-            max_skip_per_loop = 1  # Never skip more than 1 frame
+            # Frame processing optimization
+            max_frame_processing_time = frame_duration * 0.8  # Use 80% of frame time budget
+            frame_skip_count = 0
             
             while self.running:
                 loop_start = time.perf_counter()
                 
-                # Handle pause
+                # Handle pause efficiently
                 if self.paused:
                     if not self.headless:
-                        # Show paused frame and handle keys
-                        key = cv2.waitKey(30) & 0xFF
-                        if key != 255:  # Key was pressed
+                        key = cv2.waitKey(50) & 0xFF
+                        if key != 255:
                             self._handle_key_press(key)
-                    time.sleep(0.1)  # Sleep while paused
+                    time.sleep(0.05)
                     continue
                 
-                # Calculate timing
-                elapsed_time = loop_start - start_time - self.total_pause_duration
-                expected_frame = int(elapsed_time * target_fps)
-                frames_behind = expected_frame - frame_count
+                # Get audio time for synchronization
+                with self.video_source.audio_position_lock:
+                    audio_time = self.video_source.audio_position
                 
-                # Only skip frames if significantly behind (ultra-conservative)
-                if frames_behind > skip_threshold:
-                    skipped = 0
-                    while skipped < min(frames_behind, max_skip_per_loop):
+                # Calculate target frame time based on audio
+                if self.video_source.audio_playing and audio_time > 0:
+                    # Use audio time as the authoritative source
+                    adjusted_audio_time = audio_time - self.video_source.start_time
+                    target_frame_number = int(adjusted_audio_time * target_fps)
+                else:
+                    # Fallback to elapsed time
+                    elapsed_time = loop_start - start_time - self.total_pause_duration
+                    target_frame_number = int(elapsed_time * target_fps)
+                
+                # Skip frames only if significantly behind (aggressive sync)
+                frames_behind = target_frame_number - frame_count
+                
+                if frames_behind > 3:  # If more than 3 frames behind
+                    # Skip frames to catch up
+                    while frame_count < target_frame_number - 1 and frames_behind > 1:
                         frame_data = self.video_source.get_frame()
                         if frame_data is None:
                             self.running = False
                             break
-                        skipped += 1
                         frame_count += 1
+                        frames_behind -= 1
+                        frame_skip_count += 1
                     
-                    if skipped > 0:
-                        logger.debug(f"Skipped {skipped} frames for smooth playback")
+                    if frame_skip_count > 0 and frame_skip_count % 10 == 0:
+                        logger.info(f"Skipped {frame_skip_count} frames for audio sync")
                 
-                # Process the current frame
-                if self.running and frame_count <= expected_frame:
+                # Process current frame with timing budget
+                if self.running:
+                    frame_processing_start = time.perf_counter()
+                    
                     # Get the next frame
                     frame_data = self.video_source.get_frame()
                     if frame_data is None:
                         break
                     
-                    # Process the frame
+                    # Process frame with timing check
                     frame = self._process_frame(frame_data)
                     
-                    # Display the frame only if not in headless mode
+                    # Display frame only if not in headless mode
                     if not self.headless:
-                        # Resize frame for display if needed
+                        # Efficient frame resizing
                         if hasattr(self, 'display_width') and hasattr(self, 'display_height'):
                             frame_height, frame_width = frame.shape[:2]
                             if frame_width != self.display_width or frame_height != self.display_height:
-                                # Use faster interpolation for better performance
-                                frame = cv2.resize(frame, (self.display_width, self.display_height), interpolation=cv2.INTER_LINEAR)
+                                frame = cv2.resize(frame, (self.display_width, self.display_height), 
+                                                 interpolation=cv2.INTER_LINEAR)
                         
                         cv2.imshow(self.window_name, frame)
                         
-                        # Handle key press with minimal delay
+                        # Fast key handling
                         key = cv2.waitKey(1) & 0xFF
-                        if key != 255:  # Key was pressed
+                        if key != 255:
                             self._handle_key_press(key)
                             if not self.running:
                                 break
@@ -1047,16 +1048,26 @@ class VideoRunner:
                     frame_count += 1
                     self.frame_count = frame_count
                     
-                    # Log timing info less frequently for better performance
-                    if frame_count % 600 == 0:  # Every 20 seconds at 30fps
+                    # Check processing time budget
+                    frame_processing_time = time.perf_counter() - frame_processing_start
+                    if frame_processing_time > max_frame_processing_time:
+                        logger.warning(f"Frame processing exceeded budget: {frame_processing_time*1000:.1f}ms")
+                    
+                    # Reduced frequency logging
+                    if frame_count % 900 == 0:  # Every 30 seconds at 30fps
                         self._log_timing_stats()
                 
-                # Micro-sleep for smooth timing without busy waiting
+                # Precise timing control
                 loop_duration = time.perf_counter() - loop_start
-                if loop_duration < frame_duration:
-                    time.sleep(max(0.001, frame_duration - loop_duration))
+                sleep_time = frame_duration - loop_duration
+                
+                if sleep_time > 0.001:  # Only sleep if worthwhile
+                    time.sleep(sleep_time)
+                elif sleep_time < -frame_duration:  # If severely behind
+                    logger.debug(f"Severe frame timing delay: {-sleep_time*1000:.1f}ms")
             
         finally:
             if not self.headless:
                 cv2.destroyAllWindows()
             self.video_source.release()
+            logger.info(f"Playback ended. Skipped {frame_skip_count} frames total for sync.")

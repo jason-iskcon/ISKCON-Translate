@@ -51,6 +51,12 @@ class CaptionRenderer:
             (150, 255, 100),
         ]
         
+        # Performance optimization caches
+        self._text_cache = {}  # Cache rendered text images
+        self._dimension_cache = {}  # Cache text dimensions
+        self._position_cache = {}  # Cache calculated positions
+        self._cached_fonts = {}    # Cache PIL fonts
+        
         logger.debug(f"CaptionRenderer initialized with style: {self.style}")
     
     def get_language_color(self, language: str = 'en') -> tuple:
@@ -139,7 +145,7 @@ class CaptionRenderer:
         return display_lines
     
     def calculate_text_dimensions(self, display_lines):
-        """Calculate dimensions for text block using PIL for consistency.
+        """Calculate dimensions for text block using cached PIL measurements.
         
         Args:
             display_lines: List of text lines to measure
@@ -147,46 +153,68 @@ class CaptionRenderer:
         Returns:
             tuple: (line_heights, line_widths, total_height, max_width)
         """
+        # Create cache key for the entire text block
+        cache_key = f"{len(display_lines)}:{hash(tuple(display_lines))}:{self.style.get_scaled_font_size()}"
+        
+        if cache_key in self._dimension_cache:
+            return self._dimension_cache[cache_key]
+        
         line_heights = []
         line_widths = []
         
-        # Use PIL for ALL text measurements for consistency
+        # Use PIL for text measurements with aggressive caching
         try:
-            # CRITICAL FIX: Use the SAME font size calculation as rendering with video scaling
-            pil_font_size = self.style.get_scaled_font_size()  # Use video-aware scaling
-            pil_font = self._get_unicode_font(pil_font_size)
+            pil_font_size = self.style.get_scaled_font_size()
+            
+            # Get cached font
+            if pil_font_size not in self._cached_fonts:
+                self._cached_fonts[pil_font_size] = self._get_unicode_font(pil_font_size)
+                # Limit cache size
+                if len(self._cached_fonts) > 3:
+                    oldest_key = next(iter(self._cached_fonts))
+                    del self._cached_fonts[oldest_key]
+            
+            font = self._cached_fonts[pil_font_size]
             
             for line in display_lines:
                 if not line.strip():
-                    # Empty line - use a space for measurement
-                    bbox = pil_font.getbbox(' ')
-                    h = bbox[3] - bbox[1]
+                    h = pil_font_size
                     w = 0
                 else:
-                    # Use getlength for more accurate width measurement
-                    w = int(pil_font.getlength(line))
-                    bbox = pil_font.getbbox(line)
-                    h = bbox[3] - bbox[1]
-                    
-                    # Account for text shadow (2px offset) that extends the rendered bounds
-                    # But only add a smaller compensation since getlength is more accurate
-                    w += 4  # Shadow extends text width by 2px, plus small buffer
-                    h += 4  # Shadow extends text height by 2px, plus small buffer
+                    # Cache individual line measurements
+                    line_cache_key = f"{line}:{pil_font_size}"
+                    if line_cache_key in self._dimension_cache:
+                        w, h = self._dimension_cache[line_cache_key]
+                    else:
+                        w = int(font.getlength(line))
+                        bbox = font.getbbox(line)
+                        h = bbox[3] - bbox[1]
+                        w += 4  # Shadow compensation
+                        h += 4
+                        self._dimension_cache[line_cache_key] = (w, h)
                 
                 line_heights.append(h)
                 line_widths.append(w)
             
-            total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5  # 5px spacing between lines
+            total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
             max_text_width = max(line_widths) if line_widths else 0
             
-            logger.debug(f"PIL text dimensions: {len(display_lines)} lines, max_width={max_text_width}, total_height={total_text_height}, font_size={pil_font_size}")
+            result = (line_heights, line_widths, total_text_height, max_text_width)
+            self._dimension_cache[cache_key] = result
             
-            return line_heights, line_widths, total_text_height, max_text_width
+            # Limit cache size
+            if len(self._dimension_cache) > 100:
+                # Clear oldest 20 entries
+                keys_to_remove = list(self._dimension_cache.keys())[:20]
+                for key in keys_to_remove:
+                    del self._dimension_cache[key]
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error calculating PIL text dimensions: {e}")
-            # Fallback to approximate dimensions with video scaling
-            fallback_height = self.style.get_scaled_font_size(24)
+            # Fast fallback
+            fallback_height = self.style.get_scaled_font_size()
             line_heights = [fallback_height] * len(display_lines)
             line_widths = [len(line) * int(fallback_height * 0.6) for line in display_lines]
             total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
@@ -310,7 +338,7 @@ class CaptionRenderer:
         return frame
     
     def render_text_line(self, frame, line, x, y, fade_factor, language='en'):
-        """Render a single line of text using PIL for all languages.
+        """Render a single line of text using fast cached rendering.
         
         Args:
             frame: Video frame to render on
@@ -324,34 +352,28 @@ class CaptionRenderer:
             numpy.ndarray: Frame with text rendered
         """
         if not line or not line.strip():
-            logger.debug(f"[RENDER_TEXT_LINE] Skipping empty line")
             return frame
         
         try:
             # Get language-specific color
-            text_color = self.language_colors.get(language, self.language_colors['en'])  # Fallback to English color
+            text_color = self.language_colors.get(language, self.language_colors['en'])
             
-            logger.debug(f"[RENDER_TEXT_LINE] Rendering '{line[:30]}...' at ({x}, {y}) in {language} with color {text_color}")
+            # Convert BGR to RGB for PIL
+            rgb_color = (text_color[2], text_color[1], text_color[0])
+            
+            # Apply fade factor
+            faded_color = tuple(int(c * fade_factor) for c in rgb_color)
+            
+            # Use video dimension-aware font size
+            pil_font_size = self.style.get_scaled_font_size()
+            
+            # Use fast cached rendering
+            result_frame = self._render_unicode_text_fast(frame, line, (x, y), faded_color, pil_font_size, language)
+            return result_frame
+            
         except Exception as e:
-            logger.error(f"Error in render_text_line color processing: {e}")
-            text_color = (255, 255, 255)  # Safe fallback to white
-        
-        # USE PIL FOR ALL TEXT RENDERING
-        # Convert BGR to RGB for PIL (our colors are stored in BGR format)
-        rgb_color = (text_color[2], text_color[1], text_color[0])
-        
-        # Apply fade factor to color
-        faded_color = tuple(int(c * fade_factor) for c in rgb_color)
-        
-        # DEBUG: Log color conversion for debugging
-        logger.debug(f"Color conversion for {language}: BGR{text_color} -> RGB{rgb_color} -> faded{faded_color}")
-        
-        # Use video dimension-aware font size for consistency
-        pil_font_size = self.style.get_scaled_font_size()
-        
-        # Render using PIL at the given position (y is already top-left, not baseline)
-        result_frame = self._render_unicode_text(frame, line, (x, y), faded_color, pil_font_size, language)
-        return result_frame
+            logger.error(f"Error in render_text_line: {e}")
+            return frame
     
     def render_caption(self, frame, caption, current_time, caption_index=0, language='en', all_active_captions=None):
         """Render a single caption on the frame.
@@ -517,10 +539,10 @@ class CaptionRenderer:
             languages_rendered = set(c.get('language', 'en') for c in active_captions if self.calculate_fade_factor(c, current_time) > 0.05)
             logger.debug(f"[RENDER] Rendered {rendered_count}/{len(active_captions)} captions in languages: {languages_rendered}")
         
-        # Log rendering performance warnings only
+        # Log rendering performance warnings only for severe cases
         render_time = (time.time() - render_start) * 1000  # Convert to milliseconds
-        if render_time > 16:  # Log warning if rendering takes more than 16ms (~60fps)
-            logger.warning(f"Slow frame rendering: {render_time:.2f}ms")
+        if render_time > 33:  # Log warning if rendering takes more than 33ms (30fps)
+            logger.warning(f"Slow frame rendering: {render_time:.1f}ms")
         
         return result_frame
     
@@ -631,4 +653,91 @@ class CaptionRenderer:
         except Exception as e:
             logger.error(f"Error rendering Unicode text '{text}': {e}")
             # Fallback to original OpenCV rendering
+            return frame
+    
+    def _render_unicode_text_fast(self, frame, text, position, color, font_size, language='en'):
+        """Ultra-fast Unicode text rendering with aggressive caching.
+        
+        Args:
+            frame: OpenCV frame (numpy array)
+            text: Text to render (can contain Unicode characters)
+            position: (x, y) position tuple
+            color: RGB color tuple
+            font_size: Font size
+            language: Language code for font selection
+            
+        Returns:
+            numpy.ndarray: Frame with text rendered
+        """
+        try:
+            # Create cache key for rendered text
+            cache_key = f"{text}:{position}:{color}:{font_size}"
+            
+            if cache_key in self._text_cache:
+                # Use cached rendered text
+                cached_overlay, cached_mask, cached_pos = self._text_cache[cache_key]
+                x, y = cached_pos
+                
+                # Fast overlay using cached mask
+                h, w = cached_overlay.shape[:2]
+                frame_h, frame_w = frame.shape[:2]
+                
+                # Bounds check
+                if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h:
+                    roi = frame[y:y+h, x:x+w]
+                    roi[cached_mask > 0] = cached_overlay[cached_mask > 0]
+                
+                return frame
+            
+            x, y = position
+            
+            # Get cached font
+            if font_size not in self._cached_fonts:
+                self._cached_fonts[font_size] = self._get_unicode_font(font_size)
+            font = self._cached_fonts[font_size]
+            
+            # Create PIL image for text
+            bbox = font.getbbox(text)
+            text_width = bbox[2] - bbox[0] + 8  # Extra padding
+            text_height = bbox[3] - bbox[1] + 8
+            
+            # Create RGBA PIL image
+            pil_image = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(pil_image)
+            
+            # Draw shadow
+            draw.text((4, 4), text, font=font, fill=(0, 0, 0, 255))
+            # Draw text
+            draw.text((2, 2), text, font=font, fill=(*color, 255))
+            
+            # Convert to OpenCV format
+            pil_array = np.array(pil_image)
+            overlay = cv2.cvtColor(pil_array[:, :, :3], cv2.COLOR_RGB2BGR)
+            mask = pil_array[:, :, 3]
+            
+            # Cache the rendered text
+            self._text_cache[cache_key] = (overlay, mask, (x, y))
+            
+            # Limit cache size
+            if len(self._text_cache) > 50:
+                # Remove oldest entries
+                keys_to_remove = list(self._text_cache.keys())[:10]
+                for key in keys_to_remove:
+                    del self._text_cache[key]
+            
+            # Apply to frame
+            h, w = overlay.shape[:2]
+            frame_h, frame_w = frame.shape[:2]
+            
+            if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h:
+                roi = frame[y:y+h, x:x+w]
+                roi[mask > 0] = overlay[mask > 0]
+            
+            return frame
+            
+        except Exception as e:
+            logger.error(f"Error in fast Unicode rendering: {e}")
+            # Fallback to OpenCV text
+            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 
+                       font_size / 30.0, color, 2, cv2.LINE_AA)
             return frame 
