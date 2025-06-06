@@ -1,5 +1,6 @@
 """Command-line argument parsing for ISKCON-Translate."""
 import argparse
+import os
 from typing import Optional
 
 def parse_arguments() -> argparse.Namespace:
@@ -29,8 +30,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--youtube", help="YouTube URL for comparison")
     
     # Video cache directory
-    parser.add_argument("--cache-dir", default="video_cache", 
-                       help="Directory to store downloaded YouTube videos (default: video_cache)")
+    parser.add_argument("--cache-dir", default=None, 
+                       help="Directory to store downloaded YouTube videos (default: ~/.video_cache)")
     
     # Logging level
     parser.add_argument("--log-level", default="INFO", help="Logging level")

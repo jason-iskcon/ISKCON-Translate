@@ -10,12 +10,16 @@ logger = get_logger(__name__)
 class YouTubeDownloader:
     """Downloads YouTube videos to a cache directory."""
     
-    def __init__(self, cache_dir: str = "video_cache"):
+    def __init__(self, cache_dir: str = None):
         """Initialize the downloader.
         
         Args:
-            cache_dir: Directory to store downloaded videos
+            cache_dir: Directory to store downloaded videos (defaults to ~/.video_cache)
         """
+        if cache_dir is None:
+            # Use user's home directory with .video_cache folder
+            cache_dir = os.path.expanduser("~/.video_cache")
+        
         self.cache_dir = os.path.abspath(cache_dir)
         os.makedirs(self.cache_dir, exist_ok=True)
         logger.info(f"YouTube cache directory: {self.cache_dir}")
@@ -150,12 +154,12 @@ class YouTubeDownloader:
             logger.error(f"Failed to download YouTube video: {e}")
             raise
 
-def download_youtube_video(url: str, cache_dir: str = "video_cache") -> str:
+def download_youtube_video(url: str, cache_dir: str = None) -> str:
     """Convenience function to download a YouTube video.
     
     Args:
         url: YouTube URL
-        cache_dir: Directory to store downloaded videos
+        cache_dir: Directory to store downloaded videos (defaults to ~/.video_cache)
         
     Returns:
         str: Path to the downloaded MP4 file

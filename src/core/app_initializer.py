@@ -30,7 +30,7 @@ def ensure_logs_dir():
     os.makedirs(logs_dir, exist_ok=True)
     return logs_dir
 
-def resolve_video_path(video_input: str, cache_dir: str = "video_cache") -> str:
+def resolve_video_path(video_input: str, cache_dir: str = None) -> str:
     """Resolve video input to a local file path.
     
     If the input is a YouTube URL, download it first.
@@ -38,7 +38,7 @@ def resolve_video_path(video_input: str, cache_dir: str = "video_cache") -> str:
     
     Args:
         video_input: Video file path or YouTube URL
-        cache_dir: Directory to store downloaded videos
+        cache_dir: Directory to store downloaded videos (defaults to ~/.video_cache)
         
     Returns:
         str: Path to local video file
