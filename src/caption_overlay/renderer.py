@@ -30,20 +30,11 @@ class CaptionRenderer:
         self.style = style_config or CaptionStyleConfig()
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         
-        # Color mapping for different languages
+        # Color mapping for different languages - simplified to only supported languages
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary)
-            'it': (150, 255, 150),     # Pale green for Italian
             'fr': (150, 255, 255),     # Pale blue for French
-            'es': (255, 150, 255),     # Pale magenta for Spanish
-            'de': (255, 200, 150),     # Pale orange for German
-            'pt': (200, 150, 255),     # Pale purple for Portuguese
             'ru': (255, 180, 180),     # Pale red for Russian
-            'uk': (255, 255, 150),     # Pale yellow for Ukrainian
-            'hu': (180, 255, 180),     # Different shade of pale green for Hungarian
-            'ja': (255, 150, 200),     # Pale pink for Japanese
-            'zh': (150, 200, 255),     # Light blue for Chinese
-            'ar': (255, 180, 180),     # Light red for Arabic
         }
         
         logger.debug(f"CaptionRenderer initialized with style: {self.style}")
@@ -52,12 +43,18 @@ class CaptionRenderer:
         """Get the color for a specific language.
         
         Args:
-            language: Language code (e.g., 'en', 'it', 'fr')
+            language: Language code (e.g., 'en', 'fr', 'ru')
             
         Returns:
             BGR color tuple for the language
         """
-        return self.language_colors.get(language, (255, 255, 255))  # Default to white
+        # Only support the three specified languages, default everything else to white
+        if language in self.language_colors:
+            return self.language_colors[language]
+        else:
+            # Log unsupported language and default to white
+            logger.warning(f"Unsupported language '{language}', defaulting to white")
+            return (255, 255, 255)  # White for any unsupported language
     
     def calculate_fade_factor(self, caption, current_time):
         """Calculate fade factor for smooth caption transitions.
@@ -264,13 +261,13 @@ class CaptionRenderer:
         # Check if text contains Unicode characters (non-ASCII)
         has_unicode = any(ord(char) > 127 for char in line)
         
-        # Languages that typically use non-ASCII characters
-        unicode_languages = {'ru', 'uk', 'hu', 'zh', 'ja', 'ar', 'hi', 'th', 'ko'}
+        # Only Russian uses Unicode in our simplified system
+        uses_unicode_rendering = language == 'ru' or has_unicode
         
         # Get language-specific color
         text_color = self.get_language_color(language)
         
-        if has_unicode or language in unicode_languages:
+        if uses_unicode_rendering:
             # Use PIL-based Unicode rendering
             # Convert BGR to RGB for PIL
             rgb_color = (text_color[2], text_color[1], text_color[0])
@@ -278,11 +275,11 @@ class CaptionRenderer:
             # Apply fade factor to color
             faded_color = tuple(int(c * fade_factor) for c in rgb_color)
             
-            # Calculate font size based on OpenCV scale
-            font_size = int(self.style.font_scale * 24)  # Convert OpenCV scale to pixels
+            # Use the same font scale as OpenCV for consistency
+            opencv_equivalent_size = int(self.style.font_scale * 24)
             
             # Render using PIL
-            frame[:] = self._render_unicode_text(frame, line, (x, y), faded_color, font_size, language)[:]
+            frame[:] = self._render_unicode_text(frame, line, (x, y), faded_color, opencv_equivalent_size, language)[:]
         else:
             # Use original OpenCV rendering for ASCII text
             # Draw text shadow (slightly offset)
@@ -491,7 +488,7 @@ class CaptionRenderer:
             return ImageFont.load_default()
     
     def _render_unicode_text(self, frame, text, position, color, font_size=24, language='en'):
-        """Render Unicode text on frame using PIL.
+        """Render Unicode text on frame using PIL with exact size/position matching OpenCV.
         
         Args:
             frame: OpenCV frame (numpy array)
@@ -507,32 +504,38 @@ class CaptionRenderer:
         try:
             x, y = position
             
-            # Debug: Log what Unicode text is being rendered
-            if language in {'ru', 'uk', 'hu'}:
-                logger.debug(f"[UNICODE] Rendering {language} text: '{text}' at ({x},{y})")
-            
             # Convert OpenCV frame (BGR) to PIL Image (RGB)
             pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(pil_image)
+            
+            # Calculate font size to match OpenCV rendering exactly
+            # OpenCV font scale 1.0 ≈ 24px, so we need to scale appropriately
+            opencv_equivalent_size = int(self.style.font_scale * 24)
             
             # Get Unicode font (cache for better performance)
             if not hasattr(self, '_cached_fonts'):
                 self._cached_fonts = {}
             
-            font_key = f"{font_size}_{language}"
+            font_key = f"{opencv_equivalent_size}_{language}"
             if font_key not in self._cached_fonts:
-                self._cached_fonts[font_key] = self._get_unicode_font(font_size)
+                self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # Draw text shadow (for better readability)
-            shadow_offset = 2
+            # Adjust Y position to match OpenCV baseline positioning
+            # OpenCV uses baseline positioning, PIL uses top-left, so we need to adjust
+            text_bbox = draw.textbbox((0, 0), text, font=font)
+            text_height = text_bbox[3] - text_bbox[1]
+            adjusted_y = y - text_height  # Move up by text height to match OpenCV baseline
+            
+            # Draw text shadow (for better readability) - match OpenCV shadow offset
+            shadow_offset = 2  # Same as OpenCV version
             shadow_color = (0, 0, 0)  # Black shadow
-            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=shadow_color)
+            draw.text((x + shadow_offset, adjusted_y + shadow_offset), text, font=font, fill=shadow_color)
             
             # Draw main text
-            draw.text((x, y), text, font=font, fill=color)
+            draw.text((x, adjusted_y), text, font=font, fill=color)
             
-            # Convert back to OpenCV format (RGB to BGR) - more efficient method
+            # Convert back to OpenCV format (RGB to BGR)
             result_frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
             return result_frame
             
