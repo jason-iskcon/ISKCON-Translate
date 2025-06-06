@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 import time
 import logging
+from PIL import Image, ImageDraw, ImageFont
+import os
 
 # Import with try-except to handle both direct execution and module import
 try:
@@ -259,42 +261,66 @@ class CaptionRenderer:
         if not line.strip():
             return
         
-        # Draw text shadow (slightly offset)
-        shadow_offset = 2
-        shadow_color = (0, 0, 0)  # Black shadow
-        cv2.putText(
-            frame, 
-            line, 
-            (x + shadow_offset, y + shadow_offset),
-            self.font, 
-            self.style.font_scale, 
-            shadow_color,
-            self.style.font_thickness + 1, 
-            cv2.LINE_AA
-        )
+        # Check if text contains Unicode characters (non-ASCII)
+        has_unicode = any(ord(char) > 127 for char in line)
+        
+        # Languages that typically use non-ASCII characters
+        unicode_languages = {'ru', 'uk', 'hu', 'zh', 'ja', 'ar', 'hi', 'th', 'ko'}
         
         # Get language-specific color
-        text_color = list(self.get_language_color(language))
-        if len(text_color) == 3:  # If no alpha channel, add one
-            text_color = text_color + [255]  # Fully opaque by default
+        text_color = self.get_language_color(language)
         
-        # Apply fade factor to alpha channel
-        text_color[3] = int(text_color[3] * fade_factor)
-        
-        # Convert to BGR for OpenCV
-        bgr_color = tuple(text_color[2::-1])  # Convert RGB to BGR and remove alpha
-        
-        # Draw the text
-        cv2.putText(
-            frame, 
-            line, 
-            (x, y),
-            self.font, 
-            self.style.font_scale, 
-            bgr_color,
-            self.style.font_thickness, 
-            cv2.LINE_AA
-        )
+        if has_unicode or language in unicode_languages:
+            # Use PIL-based Unicode rendering
+            # Convert BGR to RGB for PIL
+            rgb_color = (text_color[2], text_color[1], text_color[0])
+            
+            # Apply fade factor to color
+            faded_color = tuple(int(c * fade_factor) for c in rgb_color)
+            
+            # Calculate font size based on OpenCV scale
+            font_size = int(self.style.font_scale * 24)  # Convert OpenCV scale to pixels
+            
+            # Render using PIL
+            frame[:] = self._render_unicode_text(frame, line, (x, y), faded_color, font_size, language)[:]
+        else:
+            # Use original OpenCV rendering for ASCII text
+            # Draw text shadow (slightly offset)
+            shadow_offset = 2
+            shadow_color = (0, 0, 0)  # Black shadow
+            cv2.putText(
+                frame, 
+                line, 
+                (x + shadow_offset, y + shadow_offset),
+                self.font, 
+                self.style.font_scale, 
+                shadow_color,
+                self.style.font_thickness + 1, 
+                cv2.LINE_AA
+            )
+            
+            # Prepare color with fade factor
+            text_color_list = list(text_color)
+            if len(text_color_list) == 3:  # If no alpha channel, add one
+                text_color_list = text_color_list + [255]  # Fully opaque by default
+            
+            # Apply fade factor to alpha channel
+            text_color_list[3] = int(text_color_list[3] * fade_factor)
+            
+            # Convert to BGR for OpenCV
+            bgr_color = tuple(text_color_list[2::-1])  # Convert RGB to BGR and remove alpha
+            
+            # Draw the text
+            cv2.putText(
+                frame, 
+                line, 
+                (x, y),
+                self.font, 
+                self.style.font_scale, 
+                bgr_color,
+                self.style.font_thickness, 
+                cv2.LINE_AA
+            )
     
     def render_caption(self, frame, caption, current_time, caption_index=0, language='en', all_active_captions=None):
         """Render a single caption on the frame.
@@ -429,4 +455,88 @@ class CaptionRenderer:
         if render_time > 16:  # Log warning if rendering takes more than 16ms (~60fps)
             logger.warning(f"Slow frame rendering: {render_time:.2f}ms")
         
-        return result_frame 
+        return result_frame
+    
+    def _get_unicode_font(self, size=24):
+        """Get a font that supports Unicode characters.
+        
+        Args:
+            size: Font size
+            
+        Returns:
+            PIL ImageFont object
+        """
+        try:
+            # Try to use system fonts that support Unicode
+            font_paths = [
+                # Windows fonts
+                "C:/Windows/Fonts/arial.ttf",
+                "C:/Windows/Fonts/calibri.ttf", 
+                "C:/Windows/Fonts/segoeui.ttf",
+                # Common cross-platform fallbacks
+                "/System/Library/Fonts/Arial.ttf",  # macOS
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Linux
+                "/usr/share/fonts/TTF/arial.ttf",  # Some Linux distributions
+            ]
+            
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    return ImageFont.truetype(font_path, size)
+            
+            # Fallback to default font
+            return ImageFont.load_default()
+            
+        except Exception as e:
+            logger.warning(f"Could not load Unicode font: {e}, using default")
+            return ImageFont.load_default()
+    
+    def _render_unicode_text(self, frame, text, position, color, font_size=24, language='en'):
+        """Render Unicode text on frame using PIL.
+        
+        Args:
+            frame: OpenCV frame (numpy array)
+            text: Text to render (can contain Unicode characters)
+            position: (x, y) position tuple
+            color: RGB color tuple
+            font_size: Font size
+            language: Language code for font selection
+            
+        Returns:
+            numpy.ndarray: Frame with text rendered
+        """
+        try:
+            x, y = position
+            
+            # Debug: Log what Unicode text is being rendered
+            if language in {'ru', 'uk', 'hu'}:
+                logger.debug(f"[UNICODE] Rendering {language} text: '{text}' at ({x},{y})")
+            
+            # Convert OpenCV frame (BGR) to PIL Image (RGB)
+            pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_image)
+            
+            # Get Unicode font (cache for better performance)
+            if not hasattr(self, '_cached_fonts'):
+                self._cached_fonts = {}
+            
+            font_key = f"{font_size}_{language}"
+            if font_key not in self._cached_fonts:
+                self._cached_fonts[font_key] = self._get_unicode_font(font_size)
+            font = self._cached_fonts[font_key]
+            
+            # Draw text shadow (for better readability)
+            shadow_offset = 2
+            shadow_color = (0, 0, 0)  # Black shadow
+            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=shadow_color)
+            
+            # Draw main text
+            draw.text((x, y), text, font=font, fill=color)
+            
+            # Convert back to OpenCV format (RGB to BGR) - more efficient method
+            result_frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+            return result_frame
+            
+        except Exception as e:
+            logger.error(f"Error rendering Unicode text '{text}': {e}")
+            # Fallback to original OpenCV rendering
+            return frame 

@@ -620,77 +620,46 @@ class VideoRunner:
         logger.info(f"Sync difference: {abs(audio_time - self.current_video_time)*1000:.2f}ms")
     
     def _clean_text_for_display(self, text: str) -> str:
-        """Clean text for proper display by handling Unicode characters that OpenCV can't render.
+        """Clean text for proper display while preserving Unicode characters for languages like Russian, Ukrainian, Hungarian.
         
         Args:
             text: Input text that may contain Unicode characters
             
         Returns:
-            Cleaned text that OpenCV can display properly
+            Cleaned text preserving Unicode characters for proper display
         """
         try:
             # First, ensure the text is properly decoded
             if isinstance(text, bytes):
                 text = text.decode('utf-8', errors='replace')
             
-            # Common Unicode character replacements for OpenCV compatibility
+            # Only replace problematic characters that could cause rendering issues
+            # But preserve all Unicode characters for proper multi-language support
             replacements = {
-                # French accents
-                'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a',
-                'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',
-                'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',
-                'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
-                'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',
-                'ý': 'y', 'ÿ': 'y',
-                'ñ': 'n', 'ç': 'c',
-                
-                # Italian accents
-                'À': 'A', 'Á': 'A', 'Â': 'A', 'Ã': 'A', 'Ä': 'A', 'Å': 'A',
-                'È': 'E', 'É': 'E', 'Ê': 'E', 'Ë': 'E',
-                'Ì': 'I', 'Í': 'I', 'Î': 'I', 'Ï': 'I',
-                'Ò': 'O', 'Ó': 'O', 'Ô': 'O', 'Õ': 'O', 'Ö': 'O',
-                'Ù': 'U', 'Ú': 'U', 'Û': 'U', 'Ü': 'U',
-                'Ý': 'Y', 'Ÿ': 'Y',
-                'Ñ': 'N', 'Ç': 'C',
-                
-                # Sanskrit transliteration (common ISKCON diacriticals)
-                'ā': 'a', 'ī': 'i', 'ū': 'u',
-                'ṛ': 'r', 'ṝ': 'r', 'ḷ': 'l',
-                'ṅ': 'n', 'ñ': 'n', 'ṇ': 'n', 'ṁ': 'm',
-                'ś': 's', 'ṣ': 's',
-                'Ā': 'A', 'Ī': 'I', 'Ū': 'U',
-                'Ṛ': 'R', 'Ṝ': 'R', 'Ḷ': 'L',
-                'Ṅ': 'N', 'Ñ': 'N', 'Ṇ': 'N', 'Ṁ': 'M',
-                'Ś': 'S', 'Ṣ': 'S',
-                
-                # Common quotation marks and dashes
+                # Problematic quotation marks and dashes that might cause rendering issues
                 ''': "'", ''': "'", '"': '"', '"': '"',
                 '–': '-', '—': '-', '…': '...',
                 
-                # Other common problematic characters
+                # Currency symbols that might not render well
                 '€': 'EUR', '£': 'GBP', '¥': 'JPY',
                 '°': 'deg', '±': '+/-', '×': 'x', '÷': '/',
             }
             
-            # Apply replacements
+            # Apply minimal replacements only for known problematic characters
             cleaned_text = text
             for unicode_char, replacement in replacements.items():
                 cleaned_text = cleaned_text.replace(unicode_char, replacement)
             
-            # As a fallback, remove any remaining non-ASCII characters that might cause issues
-            # but preserve common punctuation
-            import re
-            cleaned_text = re.sub(r'[^\x00-\x7F\x20-\x7E]', '?', cleaned_text)
-            
-            # Clean up multiple question marks that might result from the above
-            cleaned_text = re.sub(r'\?{2,}', '?', cleaned_text)
+            # DO NOT remove Unicode characters - we now have proper Unicode rendering support!
+            # Keep all Cyrillic, Ukrainian, Hungarian, and other language characters intact
+            # Our PIL-based rendering can handle them properly
             
             return cleaned_text.strip()
             
         except Exception as e:
             logger.warning(f"Error cleaning text for display: {e}")
-            # Fallback: return ASCII-only version
-            return ''.join(char if ord(char) < 128 else '?' for char in str(text))
+            # Fallback: return the original text to preserve Unicode
+            return str(text).strip()
     
     def _translate_text(self, text: str, target_language: str) -> str:
         """Translate text to target language using Google Translate with caching.
