@@ -36,7 +36,9 @@ class CaptionRenderer:
             'es': (255, 150, 255),     # Pale magenta for Spanish
             'de': (255, 200, 150),     # Pale orange for German
             'pt': (200, 150, 255),     # Pale purple for Portuguese
-            'ru': (180, 180, 255),     # Light blue for Russian
+            'ru': (255, 180, 180),     # Pale red for Russian
+            'uk': (255, 255, 150),     # Pale yellow for Ukrainian
+            'hu': (180, 255, 180),     # Different shade of pale green for Hungarian
             'ja': (255, 150, 200),     # Pale pink for Japanese
             'zh': (150, 200, 255),     # Light blue for Chinese
             'ar': (255, 180, 180),     # Light red for Arabic
