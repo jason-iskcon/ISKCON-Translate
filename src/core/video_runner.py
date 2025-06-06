@@ -332,21 +332,37 @@ class VideoRunner:
                 current_video_time_rel = self.current_video_time - self.video_source.start_time
                 active_captions = self.caption_overlay.get_active_captions(current_video_time_rel)
                 
-                # Check for recent similar captions to prevent duplication
+                # AGGRESSIVE DEDUPLICATION: Check for any similar captions in ANY language within timing window
+                # This prevents multiple caption sets from being created
                 duplicate_found = False
+                timing_window = 3.0  # 3 second window to check for duplicates
+                
                 for active_cap in active_captions:
-                    if (abs(active_cap.get('start_time', 0) - rel_start_adjusted) < 2.0 and  # Within 2 seconds
-                        active_cap.get('language', '') == 'en' and  # Same language
-                        len(set(active_cap.get('text', '').split()) & set(text.split())) > 3):  # Similar words
-                        duplicate_found = True
-                        logger.debug(f"🚨 DUPLICATE DETECTED: Skipping similar caption")
-                        break
+                    if abs(active_cap.get('start_time', 0) - rel_start_adjusted) < timing_window:
+                        # Check for similar text content regardless of language
+                        active_words = set(active_cap.get('text', '').lower().split())
+                        new_words = set(text.lower().split())
+                        word_overlap = len(active_words & new_words)
+                        
+                        # If significant word overlap, this is likely a duplicate transcription
+                        if word_overlap > 2:
+                            duplicate_found = True
+                            logger.debug(f"🚨 DUPLICATE DETECTED: Skipping transcription - {word_overlap} overlapping words with existing caption")
+                            break
                 
                 if duplicate_found:
-                    return  # Skip adding this caption
+                    return  # Skip adding this caption AND all its translations
                 
-                # Smart pruning: only remove captions that ended more than 3 seconds ago
-                pruned_count = self.caption_overlay.prune_captions(current_video_time_rel, buffer=3.0)
+                # AGGRESSIVE CLEANUP: Remove ALL overlapping captions before adding new ones
+                # This ensures we never have multiple sets active at once
+                overlap_start = rel_start_adjusted - 1.0  # Remove captions 1s before
+                overlap_end = rel_start_adjusted + duration + 1.0  # Remove captions 1s after
+                removed_count = self.caption_overlay.remove_overlapping_captions(overlap_start, overlap_end)
+                if removed_count > 0:
+                    logger.debug(f"🧹 REMOVED {removed_count} overlapping captions to prevent duplicates")
+                
+                # Additional cleanup: remove very old captions
+                pruned_count = self.caption_overlay.prune_captions(current_video_time_rel, buffer=1.0)
                 if pruned_count > 0:
                     logger.debug(f"🧹 PRUNED {pruned_count} old captions")
                                 

@@ -33,7 +33,7 @@ class CaptionRenderer:
         # Color mapping for different languages - BGR format for OpenCV
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary) - BGR
-            'fr': (150, 200, 255),     # Light blue for French - BGR (FIXED from problematic yellow)
+            'fr': (255, 180, 120),     # Light blue for French - BGR (FIXED from problematic yellow)
             'de': (0, 255, 255),       # Yellow for German - BGR (requested by user)
             'it': (0, 165, 255),       # Orange for Italian - BGR
             'hu': (0, 255, 0),         # Green for Hungarian - BGR
@@ -45,8 +45,7 @@ class CaptionRenderer:
         # Remove the old forbidden colors that conflict with our supported languages
         self.forbidden_colors = [
             (255, 255, 0),   # Pure yellow (different from German's yellow)
-            (255, 255, 100), # Light yellow variants that could conflict
-            # Note: (255, 255, 150) removed since it was causing issues
+            # Removed (255, 255, 150) as it was causing French caption issues
             (200, 255, 100),
             (150, 255, 100),
         ]
