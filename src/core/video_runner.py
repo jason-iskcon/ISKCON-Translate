@@ -327,30 +327,19 @@ class VideoRunner:
             # Get current video relative time for validation
             current_video_time = self.current_video_time - self.video_source.start_time
             
-            # CRITICAL: Clear any overlapping captions to prevent 6-caption problem
-            # Remove captions that would overlap with this new one to prevent stacking
+            # CRITICAL: Clear ALL captions to prevent 6-caption problem
+            # AGGRESSIVE APPROACH: Clear everything and start fresh to ensure exactly 3 captions
             try:
-                # AGGRESSIVE APPROACH: Remove all recent captions to ensure clean replacement
-                # This prevents multiple transcription segments from showing simultaneously
-                current_video_time_rel = self.current_video_time - self.video_source.start_time
+                # Clear ALL existing captions to prevent any duplication
+                # This ensures we only ever have exactly 3 captions (en + fr + ru)
+                total_captions_before = len(self.caption_overlay.captions)
+                self.caption_overlay.clear_captions()
                 
-                # Remove any caption that's still active or will be active soon
-                # Use a larger buffer to ensure clean caption transitions
-                removal_buffer = 2.0  # 2 seconds buffer for clean transitions
-                new_start = rel_start_adjusted
-                new_end = rel_start_adjusted + duration
-                
-                # Remove captions in a wider time range to prevent overlaps
-                removal_start = max(0, new_start - removal_buffer)
-                removal_end = new_end + removal_buffer
-                
-                removed_count = self.caption_overlay.remove_overlapping_captions(removal_start, removal_end)
-                
-                if removed_count > 0:
-                    logger.debug(f"🚨 REMOVED {removed_count} OVERLAPPING CAPTIONS in range {removal_start:.2f}-{removal_end:.2f}s to prevent 6-caption problem")
+                if total_captions_before > 0:
+                    logger.debug(f"🚨 CLEARED ALL {total_captions_before} CAPTIONS to prevent duplication")
                                 
             except Exception as e:
-                logger.warning(f"Failed to remove overlapping captions: {e}")
+                logger.warning(f"Failed to clear captions: {e}")
             
             logger.debug(f"🚨 CAPTION TIMING: rel_start={rel_start_adjusted:.2f}s, duration={duration:.2f}s, end={rel_start_adjusted + duration:.2f}s, current_video={current_video_time:.2f}s")
             

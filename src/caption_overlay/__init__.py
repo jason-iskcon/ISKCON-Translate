@@ -147,6 +147,21 @@ class CaptionOverlay:
         """
         return self.core.remove_overlapping_captions(start_time, end_time)
     
+    def get_active_captions(self, current_time: float) -> List[Dict]:
+        """Get all captions that are active at the current time.
+        
+        Args:
+            current_time: Current relative time from video start
+            
+        Returns:
+            List of active caption dictionaries
+        """
+        return self.core.get_active_captions(current_time)
+    
+    def clear_captions(self) -> None:
+        """Clear all captions."""
+        return self.core.clear_captions()
+    
     def overlay_captions(self, frame, current_time=None, frame_count=0):
         """Overlay all valid captions on frame.
         

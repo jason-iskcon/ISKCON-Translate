@@ -61,20 +61,21 @@ class CaptionRenderer:
         if language in self.language_colors:
             color = self.language_colors[language]
             
-            # SAFEGUARD: Check for forbidden yellow colors
-            if color in self.forbidden_colors:
-                logger.error(f"FORBIDDEN YELLOW COLOR DETECTED for language '{language}': {color}. Forcing to white!")
-                color = (255, 255, 255)  # Force to white
-            
-            # EXTRA SAFEGUARD: Explicitly ensure French is pale blue
+            # EXPLICIT COLOR ENFORCEMENT FIRST - before any validation
             if language == 'fr':
                 color = (255, 200, 150)  # Force French to pale blue in BGR format (updated color)
                 logger.debug(f"French color ENFORCED: {color} (BGR format)")
+                return color  # Return immediately to avoid forbidden color check
             
-            # EXTRA SAFEGUARD: Explicitly ensure Russian is pale pink  
             if language == 'ru':
                 color = (203, 192, 255)  # Force Russian to pale pink in BGR format
                 logger.debug(f"Russian color ENFORCED: {color} (BGR format)")
+                return color  # Return immediately to avoid forbidden color check
+            
+            # SAFEGUARD: Check for forbidden yellow colors (only for English or unknown)
+            if color in self.forbidden_colors:
+                logger.error(f"FORBIDDEN YELLOW COLOR DETECTED for language '{language}': {color}. Forcing to white!")
+                color = (255, 255, 255)  # Force to white
             
             # DEBUG: Log all color assignments
             logger.debug(f"Color assignment: '{language}' -> {color}")
