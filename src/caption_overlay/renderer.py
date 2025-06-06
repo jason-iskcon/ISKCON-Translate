@@ -52,8 +52,8 @@ class CaptionRenderer:
         if language in self.language_colors:
             return self.language_colors[language]
         else:
-            # Log unsupported language and default to white
-            logger.warning(f"Unsupported language '{language}', defaulting to white")
+            # Log unsupported language and default to white (NEVER yellow)
+            logger.warning(f"UNSUPPORTED LANGUAGE CODE: '{language}' - defaulting to WHITE. Only 'en', 'fr', 'ru' are supported.")
             return (255, 255, 255)  # White for any unsupported language
     
     def calculate_fade_factor(self, caption, current_time):
@@ -266,6 +266,10 @@ class CaptionRenderer:
         
         # Get language-specific color
         text_color = self.get_language_color(language)
+        
+        # TEMPORARY DEBUG: Log color and language for debugging yellow text issue
+        if language not in ['en', 'fr', 'ru']:
+            logger.warning(f"DEBUG: Unexpected language '{language}' with color {text_color} for text: '{line[:30]}...'")
         
         if uses_unicode_rendering:
             # Use PIL-based Unicode rendering
@@ -488,12 +492,12 @@ class CaptionRenderer:
             return ImageFont.load_default()
     
     def _render_unicode_text(self, frame, text, position, color, font_size=24, language='en'):
-        """Render Unicode text on frame using PIL with exact size/position matching OpenCV.
+        """Render Unicode text on frame using PIL with exact positioning to match OpenCV background bounds.
         
         Args:
             frame: OpenCV frame (numpy array)
             text: Text to render (can contain Unicode characters)
-            position: (x, y) position tuple
+            position: (x, y) position tuple - MUST match OpenCV text baseline
             color: RGB color tuple
             font_size: Font size
             language: Language code for font selection
@@ -509,7 +513,6 @@ class CaptionRenderer:
             draw = ImageDraw.Draw(pil_image)
             
             # Calculate font size to match OpenCV rendering exactly
-            # OpenCV font scale 1.0 ≈ 24px, so we need to scale appropriately
             opencv_equivalent_size = int(self.style.font_scale * 24)
             
             # Get Unicode font (cache for better performance)
@@ -521,16 +524,16 @@ class CaptionRenderer:
                 self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # Try matching OpenCV positioning exactly - use the same Y coordinate
-            # This should eliminate white space issues
-            adjusted_y = y  # Use the same Y as OpenCV for now
+            # CRITICAL: Use the EXACT same Y coordinate as OpenCV to match background bounds
+            # Don't adjust Y positioning - this ensures text stays within background
+            adjusted_y = y
             
             # Draw text shadow (for better readability) - match OpenCV shadow offset
             shadow_offset = 2  # Same as OpenCV version
             shadow_color = (0, 0, 0)  # Black shadow
             draw.text((x + shadow_offset, adjusted_y + shadow_offset), text, font=font, fill=shadow_color)
             
-            # Draw main text
+            # Draw main text at exact same position as OpenCV would
             draw.text((x, adjusted_y), text, font=font, fill=color)
             
             # Convert back to OpenCV format (RGB to BGR)
