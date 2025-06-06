@@ -124,6 +124,29 @@ class CaptionOverlay:
         """
         return self.core.prune_captions(current_time, buffer)
     
+    def remove_caption(self, caption_id: int) -> bool:
+        """Remove a specific caption by ID.
+        
+        Args:
+            caption_id: ID of the caption to remove
+            
+        Returns:
+            bool: True if caption was found and removed, False otherwise
+        """
+        return self.core.remove_caption(caption_id)
+    
+    def remove_overlapping_captions(self, start_time: float, end_time: float) -> int:
+        """Remove captions that overlap with the given time range.
+        
+        Args:
+            start_time: Start time of the range
+            end_time: End time of the range
+            
+        Returns:
+            int: Number of captions removed
+        """
+        return self.core.remove_overlapping_captions(start_time, end_time)
+    
     def overlay_captions(self, frame, current_time=None, frame_count=0):
         """Overlay all valid captions on frame.
         

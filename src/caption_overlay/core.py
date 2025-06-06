@@ -187,6 +187,48 @@ class CaptionCore:
             self.captions.clear()
             logger.info("[CAPTION] Cleared all captions")
     
+    def remove_caption(self, caption_id: int) -> bool:
+        """Remove a specific caption by ID.
+        
+        Args:
+            caption_id: ID of the caption to remove
+            
+        Returns:
+            bool: True if caption was found and removed, False otherwise
+        """
+        with self.caption_lock:
+            for i, caption in enumerate(self.captions):
+                if caption.get('id') == caption_id:
+                    removed_caption = self.captions.pop(i)
+                    logger.debug(f"[CAPTION] Removed caption #{caption_id}: '{removed_caption.get('text', '')[:30]}...'")
+                    return True
+            return False
+    
+    def remove_overlapping_captions(self, start_time: float, end_time: float) -> int:
+        """Remove captions that overlap with the given time range.
+        
+        Args:
+            start_time: Start time of the range
+            end_time: End time of the range
+            
+        Returns:
+            int: Number of captions removed
+        """
+        with self.caption_lock:
+            original_count = len(self.captions)
+            
+            # Keep captions that don't overlap with the given range
+            self.captions = [
+                c for c in self.captions
+                if not (c['start_time'] < end_time and c['end_time'] > start_time)
+            ]
+            
+            removed_count = original_count - len(self.captions)
+            if removed_count > 0:
+                logger.debug(f"[CAPTION] Removed {removed_count} overlapping captions in range {start_time:.2f}-{end_time:.2f}s")
+            
+            return removed_count
+    
     def prune_captions(self, current_time: float, buffer: float = 1.0) -> None:
         """Remove old captions to prevent memory growth.
         

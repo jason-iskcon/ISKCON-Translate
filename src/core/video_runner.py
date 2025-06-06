@@ -310,10 +310,10 @@ class VideoRunner:
             duration = end_time - start_time
             
             # Ensure reasonable duration - extend for better readability
-            # Remove artificial cap to allow natural speech rhythm
-            duration = max(2.0, duration)  # Minimum 2 seconds, but allow natural longer durations
-            if duration > 8.0:  # Only cap extremely long durations
-                duration = 8.0
+            # CRITICAL FIX: Prevent overlapping captions by using shorter, non-overlapping durations
+            duration = max(1.5, duration)  # Minimum 1.5 seconds (reduced from 2.0)
+            if duration > 4.0:  # Shorter max duration to prevent overlaps (reduced from 8.0)
+                duration = 4.0
             
             # Calculate relative timestamps by subtracting seek offset
             rel_start = start_time - self.video_source.start_time
@@ -326,6 +326,22 @@ class VideoRunner:
             
             # Get current video relative time for validation
             current_video_time = self.current_video_time - self.video_source.start_time
+            
+            # CRITICAL: Clear any overlapping captions to prevent 6-caption problem
+            # Remove captions that would overlap with this new one to prevent stacking
+            try:
+                # Use the new remove_overlapping_captions method for efficiency
+                new_start = rel_start_adjusted
+                new_end = rel_start_adjusted + duration
+                removed_count = self.caption_overlay.remove_overlapping_captions(new_start, new_end)
+                
+                if removed_count > 0:
+                    logger.debug(f"🚨 REMOVED {removed_count} OVERLAPPING CAPTIONS before adding new caption at {new_start:.2f}-{new_end:.2f}s")
+                                
+            except Exception as e:
+                logger.warning(f"Failed to remove overlapping captions: {e}")
+            
+            logger.debug(f"🚨 CAPTION TIMING: rel_start={rel_start_adjusted:.2f}s, duration={duration:.2f}s, end={rel_start_adjusted + duration:.2f}s, current_video={current_video_time:.2f}s")
             
             # Reduce logging frequency for better performance
             if self.frame_count % 30 == 0:  # Only log transcription details every 30 frames
