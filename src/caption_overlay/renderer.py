@@ -144,7 +144,7 @@ class CaptionRenderer:
         return display_lines
     
     def calculate_text_dimensions(self, display_lines):
-        """Calculate dimensions for text block using cached PIL measurements.
+        """Calculate dimensions for text block using video-responsive sizing.
         
         Args:
             display_lines: List of text lines to measure
@@ -152,74 +152,33 @@ class CaptionRenderer:
         Returns:
             tuple: (line_heights, line_widths, total_height, max_width)
         """
-        # Create cache key for the entire text block
-        cache_key = f"{len(display_lines)}:{hash(tuple(display_lines))}:{self.style.get_scaled_font_size()}"
-        
-        if cache_key in self._dimension_cache:
-            return self._dimension_cache[cache_key]
-        
         line_heights = []
         line_widths = []
         
-        # Use PIL for text measurements with aggressive caching
-        try:
-            pil_font_size = self.style.get_scaled_font_size()
+        # Use video dimension-aware font size for proper scaling
+        font_size = self.style.get_scaled_font_size()
+        
+        # Fast OpenCV-based measurement for performance
+        opencv_scale = font_size / 30.0  # Convert to OpenCV scale
+        thickness = max(1, int(opencv_scale * 2.5))
+        
+        for line in display_lines:
+            if not line.strip():
+                h = int(font_size)
+                w = 0
+            else:
+                # Use OpenCV getTextSize for fast measurement
+                (w, h), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, opencv_scale, thickness)
+                w += 4  # Shadow compensation
+                h += 4
             
-            # Get cached font
-            if pil_font_size not in self._cached_fonts:
-                self._cached_fonts[pil_font_size] = self._get_unicode_font(pil_font_size)
-                # Limit cache size
-                if len(self._cached_fonts) > 3:
-                    oldest_key = next(iter(self._cached_fonts))
-                    del self._cached_fonts[oldest_key]
-            
-            font = self._cached_fonts[pil_font_size]
-            
-            for line in display_lines:
-                if not line.strip():
-                    h = pil_font_size
-                    w = 0
-                else:
-                    # Cache individual line measurements
-                    line_cache_key = f"{line}:{pil_font_size}"
-                    if line_cache_key in self._dimension_cache:
-                        w, h = self._dimension_cache[line_cache_key]
-                    else:
-                        w = int(font.getlength(line))
-                        bbox = font.getbbox(line)
-                        h = bbox[3] - bbox[1]
-                        w += 4  # Shadow compensation
-                        h += 4
-                        self._dimension_cache[line_cache_key] = (w, h)
-                
-                line_heights.append(h)
-                line_widths.append(w)
-            
-            total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
-            max_text_width = max(line_widths) if line_widths else 0
-            
-            result = (line_heights, line_widths, total_text_height, max_text_width)
-            self._dimension_cache[cache_key] = result
-            
-            # Limit cache size
-            if len(self._dimension_cache) > 100:
-                # Clear oldest 20 entries
-                keys_to_remove = list(self._dimension_cache.keys())[:20]
-                for key in keys_to_remove:
-                    del self._dimension_cache[key]
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error calculating PIL text dimensions: {e}")
-            # Fast fallback
-            fallback_height = self.style.get_scaled_font_size()
-            line_heights = [fallback_height] * len(display_lines)
-            line_widths = [len(line) * int(fallback_height * 0.6) for line in display_lines]
-            total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
-            max_text_width = max(line_widths) if line_widths else 0
-            
-            return line_heights, line_widths, total_text_height, max_text_width
+            line_heights.append(h)
+            line_widths.append(w)
+        
+        total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
+        max_text_width = max(line_widths) if line_widths else 0
+        
+        return line_heights, line_widths, total_text_height, max_text_width
     
     def calculate_text_position(self, frame_width, frame_height, max_text_width, total_text_height, caption_index=0, active_captions=None):
         """Calculate text and background positions with intelligent overlap prevention.
@@ -243,6 +202,20 @@ class CaptionRenderer:
         
         bg_width = max_text_width + (2 * padding)
         bg_height = total_text_height + (2 * padding)
+        
+        # CRITICAL FIX: Ensure background never extends outside frame boundaries
+        # This addresses the background sizing bug identified in tests
+        if bg_width > frame_width:
+            # Text is wider than frame - constrain background to frame width
+            bg_x1 = 0
+            bg_x2 = frame_width
+            # Recalculate effective text area width within frame constraints
+            effective_text_area_width = frame_width - (2 * padding)
+        else:
+            # Normal case - center background on frame
+            bg_x1 = (frame_width - bg_width) // 2
+            bg_x2 = bg_x1 + bg_width
+            effective_text_area_width = max_text_width
         
         # Calculate dynamic spacing based on caption height and number of lines
         line_count = max(1, total_text_height // 25)  # Estimate lines (25px per line)
@@ -337,7 +310,7 @@ class CaptionRenderer:
         return frame
     
     def render_text_line(self, frame, line, x, y, fade_factor, language='en'):
-        """EMERGENCY DEMO MODE: Ultra-fast OpenCV-only text rendering.
+        """Render a single line of text with proper video-responsive sizing.
         
         Args:
             frame: Video frame to render on
@@ -354,7 +327,6 @@ class CaptionRenderer:
             return frame
         
         try:
-            # EMERGENCY MODE: Use only OpenCV for maximum speed
             # Get language-specific color
             text_color = self.language_colors.get(language, self.language_colors['en'])
             
@@ -365,21 +337,21 @@ class CaptionRenderer:
                 int(text_color[2] * fade_factor)
             )
             
-            # Use fixed OpenCV settings for speed
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            scale = 0.8  # Fixed scale for speed
-            thickness = 2
+            # Use video dimension-aware font scaling (RESTORED)
+            base_scale = self.style.get_scaled_font_size() / 30.0  # Convert PIL size to OpenCV scale
+            scale = base_scale * 0.8  # Slightly smaller for better performance
+            thickness = max(1, int(scale * 2.5))  # Proportional thickness
             
             # Calculate text position for OpenCV (baseline positioning)
-            text_size = cv2.getTextSize(line, font, scale, thickness)[0]
+            text_size = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
             baseline_y = y + text_size[1] + 5  # Convert from top-left to baseline
             
             # Render shadow first (for readability)
             shadow_pos = (x + 2, baseline_y + 2)
-            cv2.putText(frame, line, shadow_pos, font, scale, (0, 0, 0), thickness, cv2.LINE_AA)
+            cv2.putText(frame, line, shadow_pos, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thickness, cv2.LINE_AA)
             
             # Render main text
-            cv2.putText(frame, line, (x, baseline_y), font, scale, bgr_color, thickness, cv2.LINE_AA)
+            cv2.putText(frame, line, (x, baseline_y), cv2.FONT_HERSHEY_SIMPLEX, scale, bgr_color, thickness, cv2.LINE_AA)
             
             return frame
             
@@ -417,7 +389,7 @@ class CaptionRenderer:
                 logger.warning(f"[RENDER_CAPTION] No display lines generated for caption: '{caption['text']}'")
                 return frame
             
-            # Calculate text dimensions using PIL
+            # Calculate text dimensions using video-responsive sizing
             line_heights, line_widths, total_text_height, max_text_width = self.calculate_text_dimensions(display_lines)
             
             # Calculate positions
@@ -445,13 +417,13 @@ class CaptionRenderer:
                     y += h + 5  # Add space for empty lines
                     continue
                 
-                # CRITICAL FIX: Center each line within the BACKGROUND text area, not the frame
-                # Handle both normal and frame-constrained cases
+                # CRITICAL FIX: Position text relative to BACKGROUND bounds, not frame bounds
+                # This addresses the line alignment bug identified in tests
                 bg_width = bg_x2 - bg_x1
-                text_area_width = bg_width - (2 * self.style.padding)
-                text_area_left = bg_x1 + self.style.padding
+                text_area_width = bg_width - (2 * self.style.get_scaled_padding())
+                text_area_left = bg_x1 + self.style.get_scaled_padding()
                 
-                # For very wide text that exceeds frame width, ensure text fits within frame
+                # Center each line within the BACKGROUND text area, not the frame
                 if text_area_width < w:
                     # Text is wider than available area - position at left edge and clip
                     x = text_area_left

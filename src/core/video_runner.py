@@ -56,6 +56,9 @@ class VideoRunner:
         self.pause_start_time = 0.0
         self.total_pause_duration = 0.0
         
+        # Restore translation functionality with performance optimizations
+        # Re-enable target languages but keep processing optimized
+        
         # Create list of all target languages for translation
         self.target_languages = []
         
@@ -69,9 +72,9 @@ class VideoRunner:
                 if sec_lang not in self.target_languages and sec_lang != "en":
                     self.target_languages.append(sec_lang)
         
-        # CRITICAL DEBUG: Log exactly what target languages we have
-        logger.info(f"🚨 TARGET LANGUAGES SETUP: primary='{primary_language}', secondary={self.secondary_languages}")
-        logger.info(f"🚨 FINAL TARGET LANGUAGES: {self.target_languages} (should have EXACTLY {len(set(self.target_languages))} unique languages)")
+        # Log exactly what target languages we have
+        logger.info(f"🎯 TARGET LANGUAGES SETUP: primary='{primary_language}', secondary={self.secondary_languages}")
+        logger.info(f"🎯 FINAL TARGET LANGUAGES: {self.target_languages} (total: {len(set(self.target_languages))} unique languages)")
         
         # Additional safety check for duplicates
         if len(self.target_languages) != len(set(self.target_languages)):
@@ -216,13 +219,6 @@ class VideoRunner:
             self.display_height = height
         
         logger.info(f"Video runner initialized: {width}x{height} @ {self.video_source.fps}fps")
-        
-        # EMERGENCY DEMO MODE: Disable all secondary languages for maximum performance
-        # Only use English captions to eliminate translation overhead and duplicate issues
-        
-        # Temporarily disable secondary languages for smooth demo
-        self.secondary_languages = []  # EMERGENCY: No translations for smooth demo
-        self.target_languages = []     # EMERGENCY: English only
     
     def prebuffer_frames(self):
         """Pre-buffer frames before starting playback."""
@@ -413,13 +409,7 @@ class VideoRunner:
                 # Clean the text for proper display (handle Unicode characters)
                 processed_text = self._clean_text_for_display(processed_text)
                 
-                # Start buffering translations for the next transcription (look-ahead)
-                self._buffer_translations(processed_text, rel_start_adjusted)
-                
-                # EMERGENCY DEMO MODE: Only add English captions for maximum performance
-                # Skip all translations to eliminate duplicate caption issues and improve speed
-                
-                # Add primary language caption (English only in emergency mode)
+                # Add primary language caption (always English from transcription)
                 primary_caption = self.caption_overlay.add_caption(
                     processed_text, 
                     rel_start_adjusted, 
@@ -429,17 +419,59 @@ class VideoRunner:
                     is_primary=True
                 )
                 
-                # EMERGENCY: Skip all translation processing for smooth demo
-                # This eliminates the duplicate caption problem and dramatically improves performance
+                # Add target language captions with improved duplicate prevention
+                if target_languages and hasattr(self, '_translator'):
+                    logger.debug(f"🎯 ADDING TRANSLATIONS for {len(target_languages)} languages: {target_languages}")
+                    
+                    # Track successful additions to prevent over-adding
+                    successful_additions = []
+                    
+                    for lang_code in target_languages:
+                        try:
+                            # Use buffered translation for instant concurrent display
+                            translated_text = self._get_buffered_translation(processed_text, rel_start_adjusted, lang_code)
+                            
+                            if translated_text and translated_text.strip() and translated_text != processed_text:
+                                # Clean the translated text for proper display
+                                cleaned_translated_text = self._clean_text_for_display(translated_text)
+                                
+                                logger.debug(f"🎯 ADDING CAPTION: lang='{lang_code}', text='{cleaned_translated_text[:30]}...', timing={rel_start_adjusted:.2f}-{rel_start_adjusted + duration:.2f}")
+                                
+                                # Add translated caption with EXACT SAME timing as primary for concurrent display
+                                secondary_caption = self.caption_overlay.add_caption(
+                                    cleaned_translated_text, 
+                                    rel_start_adjusted,  # EXACT same timing
+                                    duration,  # EXACT same duration
+                                    is_absolute=False, 
+                                    language=lang_code, 
+                                    is_primary=False
+                                )
+                                
+                                successful_additions.append(lang_code)
+                                    
+                                if self.frame_count % 30 == 0:
+                                    logger.info(f"[CAPTION] Added {lang_code} CONCURRENT: {cleaned_translated_text!r}")
+                            else:
+                                logger.debug(f"🎯 SKIPPING CAPTION for '{lang_code}': translation failed or identical")
+                        except Exception as e:
+                            logger.warning(f"Failed to add concurrent caption for {lang_code}: {e}")
+                    
+                    if self.frame_count % 30 == 0:  # Only log success every 30 frames
+                        logger.info(f"[CAPTION] Added {len(successful_additions)} translations: {successful_additions}")
                 
-                # VALIDATION: Should only have 1 caption now (English only)
+                # IMPROVED VALIDATION: Check expected caption count with better logging
+                expected_caption_count = 1 + len(target_languages)  # 1 English + target languages
                 current_video_time_rel = self.current_video_time - self.video_source.start_time
                 active_captions = self.caption_overlay.get_active_captions(current_video_time_rel)
                 
-                if len(active_captions) > 1:
-                    logger.error(f"🚨 EMERGENCY MODE: {len(active_captions)} captions detected! Should only be 1 (English)")
-                
-                logger.info("[CAPTION] English-only caption added (EMERGENCY DEMO MODE)")
+                if len(active_captions) > expected_caption_count:
+                    logger.error(f"🚨 CAPTION VALIDATION FAILED: Expected {expected_caption_count} captions but found {len(active_captions)}")
+                    # Show only first few for debugging
+                    for i, cap in enumerate(active_captions[:6]):
+                        lang = cap.get('language', 'UNKNOWN')
+                        logger.error(f"   Active caption {i+1}: lang='{lang}', text='{cap.get('text', '')[:30]}...'")
+                elif self.frame_count % 30 == 0:
+                    logger.info(f"[CAPTION] ✓ Caption count OK: {len(active_captions)}/{expected_caption_count} expected")
                     
             except Exception as e:
                 logger.error(f"Error adding caption: {e}")
