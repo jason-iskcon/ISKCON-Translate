@@ -33,15 +33,20 @@ class CaptionRenderer:
         # Color mapping for different languages - BGR format for OpenCV
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary) - BGR
-            'fr': (255, 200, 150),     # Pale blue for French - BGR (changed from 255,255,150 to avoid yellow)
-            'ru': (203, 192, 255),     # Pale pink for Russian - BGR
+            'fr': (255, 200, 150),     # Pale blue for French - BGR
+            'de': (0, 255, 255),       # Yellow for German - BGR (requested by user)
+            'it': (0, 165, 255),       # Orange for Italian - BGR
+            'hu': (0, 255, 0),         # Green for Hungarian - BGR
+            'ru': (203, 192, 255),     # Pale pink for Russian (Cyrillic) - BGR
+            'uk': (255, 0, 255),       # Magenta for Ukrainian (Cyrillic) - BGR
         }
         
-        # SAFEGUARD: Absolutely NO yellow colors allowed anywhere
+        # SAFEGUARD: Yellow is now allowed for German specifically
+        # Remove the old forbidden colors that conflict with our supported languages
         self.forbidden_colors = [
-            (255, 255, 0),   # Pure yellow
-            (255, 255, 100), # Light yellow variants  
-            (255, 255, 200), # Removed (255, 255, 150) as it conflicts with French
+            (255, 255, 0),   # Pure yellow (different from German's yellow)
+            (255, 255, 100), # Light yellow variants that could conflict
+            # Note: (255, 255, 150) removed since it was causing issues
             (200, 255, 100),
             (150, 255, 100),
         ]
@@ -52,37 +57,26 @@ class CaptionRenderer:
         """Get the color for a specific language.
         
         Args:
-            language: Language code (e.g., 'en', 'fr', 'ru')
+            language: Language code (e.g., 'en', 'fr', 'de', 'it', 'hu', 'ru', 'uk')
             
         Returns:
             BGR color tuple for the language
         """
-        # Only support the three specified languages, default everything else to white
+        # Support all configured languages, default everything else to white
         if language in self.language_colors:
             color = self.language_colors[language]
             
-            # EXPLICIT COLOR ENFORCEMENT FIRST - before any validation
-            if language == 'fr':
-                color = (255, 200, 150)  # Force French to pale blue in BGR format (updated color)
-                logger.debug(f"French color ENFORCED: {color} (BGR format)")
-                return color  # Return immediately to avoid forbidden color check
-            
-            if language == 'ru':
-                color = (203, 192, 255)  # Force Russian to pale pink in BGR format
-                logger.debug(f"Russian color ENFORCED: {color} (BGR format)")
-                return color  # Return immediately to avoid forbidden color check
-            
-            # SAFEGUARD: Check for forbidden yellow colors (only for English or unknown)
+            # SAFEGUARD: Check for forbidden yellow colors (but allow German's specific yellow)
             if color in self.forbidden_colors:
-                logger.error(f"FORBIDDEN YELLOW COLOR DETECTED for language '{language}': {color}. Forcing to white!")
+                logger.error(f"FORBIDDEN COLOR DETECTED for language '{language}': {color}. Forcing to white!")
                 color = (255, 255, 255)  # Force to white
             
             # DEBUG: Log all color assignments
             logger.debug(f"Color assignment: '{language}' -> {color}")
             return color
         else:
-            # Log unsupported language and default to white (NEVER yellow)
-            logger.warning(f"UNSUPPORTED LANGUAGE CODE: '{language}' - defaulting to WHITE. Only 'en', 'fr', 'ru' are supported.")
+            # Log unsupported language and default to white
+            logger.warning(f"UNSUPPORTED LANGUAGE CODE: '{language}' - defaulting to WHITE. Supported: {list(self.language_colors.keys())}")
             return (255, 255, 255)  # White for any unsupported language
     
     def calculate_fade_factor(self, caption, current_time):
@@ -145,7 +139,7 @@ class CaptionRenderer:
         return display_lines
     
     def calculate_text_dimensions(self, display_lines):
-        """Calculate dimensions for text block using OpenCV for consistency.
+        """Calculate dimensions for text block using PIL for consistency.
         
         Args:
             display_lines: List of text lines to measure
@@ -156,26 +150,49 @@ class CaptionRenderer:
         line_heights = []
         line_widths = []
         
-        for line in display_lines:
-            # CRITICAL: Use OpenCV for ALL text measurements to ensure consistency
-            # This ensures background sizing matches text positioning exactly
-            (w, h), _ = cv2.getTextSize(
-                line, self.font, self.style.font_scale, self.style.font_thickness
-            )
-            line_heights.append(h)
-            line_widths.append(w)
+        # Use PIL for ALL text measurements for consistency
+        try:
+            # CRITICAL FIX: Use the SAME font size calculation as rendering
+            pil_font_size = max(16, int(self.style.font_scale * 30))  # Match _render_unicode_text
+            pil_font = self._get_unicode_font(pil_font_size)
             
-            # DEBUG: Log dimensions for Russian text specifically
-            has_unicode = any(ord(char) > 127 for char in line)
-            if has_unicode:
-                logger.debug(f"Russian text '{line[:20]}...' OpenCV dimensions: {w}x{h}")
-        
-        total_text_height = sum(line_heights) + (len(display_lines) - 1) * (self.style.font_thickness + 2)
-        max_text_width = max(line_widths) if line_widths else 0
-        
-        logger.debug(f"Text dimensions: {len(display_lines)} lines, max_width={max_text_width}, total_height={total_text_height}")
-        
-        return line_heights, line_widths, total_text_height, max_text_width
+            for line in display_lines:
+                if not line.strip():
+                    # Empty line - use a space for measurement
+                    bbox = pil_font.getbbox(' ')
+                    h = bbox[3] - bbox[1]
+                    w = 0
+                else:
+                    # Use getlength for more accurate width measurement
+                    w = int(pil_font.getlength(line))
+                    bbox = pil_font.getbbox(line)
+                    h = bbox[3] - bbox[1]
+                    
+                    # Account for text shadow (2px offset) that extends the rendered bounds
+                    # But only add a smaller compensation since getlength is more accurate
+                    w += 4  # Shadow extends text width by 2px, plus small buffer
+                    h += 4  # Shadow extends text height by 2px, plus small buffer
+                
+                line_heights.append(h)
+                line_widths.append(w)
+            
+            total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5  # 5px spacing between lines
+            max_text_width = max(line_widths) if line_widths else 0
+            
+            logger.debug(f"PIL text dimensions: {len(display_lines)} lines, max_width={max_text_width}, total_height={total_text_height}, font_size={pil_font_size}")
+            
+            return line_heights, line_widths, total_text_height, max_text_width
+            
+        except Exception as e:
+            logger.error(f"Error calculating PIL text dimensions: {e}")
+            # Fallback to approximate dimensions
+            fallback_height = int(self.style.font_scale * 24)
+            line_heights = [fallback_height] * len(display_lines)
+            line_widths = [len(line) * int(fallback_height * 0.6) for line in display_lines]
+            total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
+            max_text_width = max(line_widths) if line_widths else 0
+            
+            return line_heights, line_widths, total_text_height, max_text_width
     
     def calculate_text_position(self, frame_width, frame_height, max_text_width, total_text_height, caption_index=0, active_captions=None):
         """Calculate text and background positions with intelligent overlap prevention.
@@ -243,9 +260,19 @@ class CaptionRenderer:
                 bg_y1 = 20
                 bg_y2 = bg_y1 + bg_height
         
-        # Horizontal centering
-        bg_x1 = (frame_width - bg_width) // 2
-        bg_x2 = bg_x1 + bg_width
+        # Horizontal centering with frame boundary constraints
+        # Ensure background never extends outside frame boundaries
+        if bg_width > frame_width:
+            # Text is wider than frame - constrain background to frame width
+            bg_x1 = 0
+            bg_x2 = frame_width
+            # Recalculate effective text area width within frame constraints
+            effective_text_area_width = frame_width - (2 * padding)
+        else:
+            # Normal case - center background on frame
+            bg_x1 = (frame_width - bg_width) // 2
+            bg_x2 = bg_x1 + bg_width
+            effective_text_area_width = max_text_width
         
         # Text position (top-left corner of text area)
         text_x = bg_x1 + padding
@@ -283,93 +310,65 @@ class CaptionRenderer:
         return frame
     
     def render_text_line(self, frame, line, x, y, fade_factor, language='en'):
-        """Render a single line of text with shadow.
+        """Render a single line of text using PIL for all languages.
         
         Args:
             frame: Video frame to render on
             line: Text line to render
-            x: X position for text
-            y: Y position for text
+            x: X position for text (left edge)
+            y: Y position for text (top edge, NOT baseline)
             fade_factor: Fade factor for text opacity
             language: Language code for color selection
+            
+        Returns:
+            numpy.ndarray: Frame with text rendered
         """
         if not line.strip():
-            return
-        
-        # Check if text contains Unicode characters (non-ASCII)
-        has_unicode = any(ord(char) > 127 for char in line)
-        
-        # Only Russian uses Unicode in our simplified system
-        uses_unicode_rendering = language == 'ru' or has_unicode
+            return frame
         
         # Get language-specific color
         text_color = self.get_language_color(language)
         
-        # CRITICAL DEBUG: Log all color assignments to catch yellow colors
-        if language == 'fr' and text_color != (255, 200, 150):
-            logger.error(f"🚨 FRENCH COLOR WRONG! Expected (255,200,150) but got {text_color}")
-        if language == 'ru' and text_color != (203, 192, 255):
-            logger.error(f"🚨 RUSSIAN COLOR WRONG! Expected (203,192,255) but got {text_color}")
+        # CRITICAL DEBUG: Log all color assignments to catch issues
+        expected_colors = {
+            'en': (255, 255, 255),
+            'fr': (255, 200, 150), 
+            'de': (0, 255, 255),
+            'it': (0, 165, 255),
+            'hu': (0, 255, 0),
+            'ru': (203, 192, 255),
+            'uk': (255, 0, 255)
+        }
         
-        # DETECT YELLOW COLORS - log any yellow-like colors
+        if language in expected_colors and text_color != expected_colors[language]:
+            logger.error(f"🚨 {language.upper()} COLOR WRONG! Expected {expected_colors[language]} but got {text_color}")
+        
+        # DETECT YELLOW COLORS - log any unexpected yellow-like colors (but allow German's yellow)
         r, g, b = text_color
-        if g > 200 and b < 200:  # Yellow-like colors have high green, low blue
-            logger.error(f"🚨 YELLOW COLOR DETECTED for language '{language}': {text_color}")
+        if g > 200 and b < 200 and language != 'de':  # Yellow-like colors, but allow German
+            logger.error(f"🚨 UNEXPECTED YELLOW COLOR DETECTED for language '{language}': {text_color}")
         
-        # TEMPORARY DEBUG: Log color and language for debugging yellow text issue
+        # DEBUG: Log color and language for debugging
         logger.debug(f"RENDER_TEXT_LINE: lang='{language}' color={text_color} text='{line[:15]}...'")
-        if language not in ['en', 'fr', 'ru']:
+        if language not in expected_colors:
             logger.warning(f"DEBUG: Unexpected language '{language}' with color {text_color} for text: '{line[:30]}...'")
         
-        if uses_unicode_rendering:
-            # Use PIL-based Unicode rendering
-            # Convert BGR to RGB for PIL (our colors are stored in BGR format)
-            rgb_color = (text_color[2], text_color[1], text_color[0])
-            
-            # Apply fade factor to color
-            faded_color = tuple(int(c * fade_factor) for c in rgb_color)
-            
-            # DEBUG: Log color conversion for debugging
-            logger.debug(f"Color conversion for {language}: BGR{text_color} -> RGB{rgb_color} -> faded{faded_color}")
-            
-            # Use the same font scale as OpenCV for consistency
-            opencv_equivalent_size = int(self.style.font_scale * 24)
-            
-            # Render using PIL
-            frame[:] = self._render_unicode_text(frame, line, (x, y), faded_color, opencv_equivalent_size, language)[:]
-        else:
-            # Use original OpenCV rendering for ASCII text
-            # Draw text shadow (slightly offset)
-            shadow_offset = 2
-            shadow_color = (0, 0, 0)  # Black shadow
-            cv2.putText(
-                frame, 
-                line, 
-                (x + shadow_offset, y + shadow_offset),
-                self.font, 
-                self.style.font_scale, 
-                shadow_color,
-                self.style.font_thickness + 1, 
-                cv2.LINE_AA
-            )
-            
-            # Apply fade factor directly to BGR color (no conversion needed for OpenCV)
-            faded_color = tuple(int(c * fade_factor) for c in text_color)
-            
-            # DEBUG: Log OpenCV color application
-            logger.debug(f"OpenCV rendering for {language}: original{text_color} -> faded{faded_color}")
-            
-            # Draw the text with faded color
-            cv2.putText(
-                frame, 
-                line, 
-                (x, y),
-                self.font, 
-                self.style.font_scale, 
-                faded_color,  # Use BGR color directly
-                self.style.font_thickness, 
-                cv2.LINE_AA
-            )
+        # USE PIL FOR ALL TEXT RENDERING
+        # Convert BGR to RGB for PIL (our colors are stored in BGR format)
+        rgb_color = (text_color[2], text_color[1], text_color[0])
+        
+        # Apply fade factor to color
+        faded_color = tuple(int(c * fade_factor) for c in rgb_color)
+        
+        # DEBUG: Log color conversion for debugging
+        logger.debug(f"Color conversion for {language}: BGR{text_color} -> RGB{rgb_color} -> faded{faded_color}")
+        
+        # Use the same font scale as before for consistency
+        pil_font_size = int(self.style.font_scale * 24)
+        
+        # Render using PIL at the given position (y is already top-left, not baseline)
+        result_frame = self._render_unicode_text(frame, line, (x, y), faded_color, pil_font_size, language)
+        return result_frame
     
     def render_caption(self, frame, caption, current_time, caption_index=0, language='en', all_active_captions=None):
         """Render a single caption on the frame.
@@ -399,7 +398,7 @@ class CaptionRenderer:
                 logger.warning(f"[RENDER_CAPTION] No display lines generated for caption: '{caption['text']}'")
                 return frame
             
-            # Calculate text dimensions
+            # Calculate text dimensions using PIL
             line_heights, line_widths, total_text_height, max_text_width = self.calculate_text_dimensions(display_lines)
             
             # Calculate positions
@@ -416,23 +415,36 @@ class CaptionRenderer:
             # Calculate starting Y position to center all text lines within the background
             total_line_spacing = (len(display_lines) - 1) * 5  # 5px spacing between lines
             actual_text_height = sum(line_heights) + total_line_spacing
-            start_y = bg_center_y - (actual_text_height // 2) + line_heights[0]  # Add first line height for baseline
+            
+            # For PIL text: start_y is the TOP position of the first line
+            start_y = bg_center_y - (actual_text_height // 2)
             
             # Render each line of text
             y = start_y
-            for line_idx, (line, h) in enumerate(zip(display_lines, line_heights)):
+            for line_idx, (line, h, w) in enumerate(zip(display_lines, line_heights, line_widths)):
                 if not line.strip():
-                    y += int(h * 1.5)  # Add extra space for empty lines
+                    y += h + 5  # Add space for empty lines
                     continue
                 
-                # Get text size for this line to center it horizontally
-                (w, _), _ = cv2.getTextSize(
-                    line, self.font, self.style.font_scale, self.style.font_thickness
-                )
-                x = (frame_width - w) // 2  # Center each line horizontally
+                # CRITICAL FIX: Center each line within the BACKGROUND text area, not the frame
+                # Handle both normal and frame-constrained cases
+                bg_width = bg_x2 - bg_x1
+                text_area_width = bg_width - (2 * self.style.padding)
+                text_area_left = bg_x1 + self.style.padding
+                
+                # For very wide text that exceeds frame width, ensure text fits within frame
+                if text_area_width < w:
+                    # Text is wider than available area - position at left edge and clip
+                    x = text_area_left
+                else:
+                    # Normal case - center the line within the available text area
+                    x = text_area_left + (text_area_width - w) // 2
+                
+                # Ensure text doesn't go outside the frame boundaries
+                x = max(0, min(x, frame_width - w))
                 
                 # Render the text line with language-specific color
-                self.render_text_line(frame, line, x, y, fade_factor, language)
+                frame = self.render_text_line(frame, line, x, y, fade_factor, language)
                 
                 # Move to next line position with spacing
                 y += h + 5
@@ -599,20 +611,15 @@ class CaptionRenderer:
             font = self._cached_fonts[font_key]
             
             # CRITICAL FIX: Use the SAME positioning logic as OpenCV for consistency
-            # Instead of complex baseline conversion, position text to match OpenCV exactly
-            # The y position from OpenCV is the baseline, but we need to adjust for PIL's top-left origin
+            # The key insight: text_y from calculate_text_position is the TOP of the text area
+            # For PIL, we need to render at that exact top position (not baseline)
             
-            # Get text metrics using OpenCV for consistency with background calculation
-            (opencv_width, opencv_height), opencv_baseline = cv2.getTextSize(
-                text, self.font, self.style.font_scale, self.style.font_thickness
-            )
-            
-            # Use OpenCV's height calculation but adjust for PIL rendering
-            # The key insight: use OpenCV's text height to position PIL text consistently
-            pil_y = y - opencv_height  # Position text so baseline matches OpenCV
+            # SIMPLIFIED: Use the text position directly for PIL top-left rendering
+            # The position passed in is now already the correct top-left position
+            pil_x, pil_y = position
             
             # DEBUG: Log positioning details
-            logger.debug(f"Russian positioning: OpenCV_height={opencv_height}, baseline_y={y}, PIL_top_y={pil_y}")
+            logger.debug(f"{language.upper()} positioning: received position=({pil_x}, {pil_y})")
             
             # Ensure text doesn't go off screen
             pil_y = max(10, pil_y)  # At least 10 pixels from top
@@ -620,16 +627,16 @@ class CaptionRenderer:
             # Draw text shadow first (for better readability)
             shadow_offset = 2
             shadow_color = (0, 0, 0)  # Black shadow
-            draw.text((x + shadow_offset, pil_y + shadow_offset), text, font=font, fill=shadow_color)
+            draw.text((pil_x + shadow_offset, pil_y + shadow_offset), text, font=font, fill=shadow_color)
             
             # Draw main text using the calculated position
-            draw.text((x, pil_y), text, font=font, fill=color)
+            draw.text((pil_x, pil_y), text, font=font, fill=color)
             
             # Convert back to OpenCV format (RGB to BGR)
             result_frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
             
             # DEBUG: Log successful rendering
-            logger.debug(f"Russian text rendered successfully at PIL position ({x}, {pil_y})")
+            logger.debug(f"{language.upper()} text rendered successfully at PIL position ({pil_x}, {pil_y})")
             
             return result_frame
             

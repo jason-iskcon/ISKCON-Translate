@@ -43,11 +43,16 @@ class VideoSource:
             logger.info("🔧 First VideoSource instance - will initialize singleton clock")
         
         # Use source directly if it's an absolute path, otherwise assume it's in cache
-        self.source = source
-        if not os.path.isabs(source):
-            cache_dir = os.path.expanduser("~/.video_cache")
-            self.source = os.path.join(cache_dir, source)
-            self.logger.debug(f"Using cached video path: {self.source}")
+        # Default to webcam if no source provided
+        if source is None:
+            self.source = 0  # Default to webcam
+            self.logger.info("No video source provided, defaulting to webcam (source=0)")
+        else:
+            self.source = source
+            if not os.path.isabs(source):
+                cache_dir = os.path.expanduser("~/.video_cache")
+                self.source = os.path.join(cache_dir, source)
+                self.logger.debug(f"Using cached video path: {self.source}")
             
         # Initialize queue for synchronized playback with larger buffer
         self.frames_queue = Queue(maxsize=240)  # 240 frames (8 seconds at 30fps)
