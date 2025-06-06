@@ -10,8 +10,9 @@ def parse_arguments() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description="ISKCON-Translate - Synchronized Video Captioning")
     
-    # Video file argument
-    parser.add_argument("video_file", nargs="?", help="Path to video file")
+    # Video file or YouTube URL argument
+    parser.add_argument("video_file", nargs="?", 
+                       help="Path to video file or YouTube URL (e.g., https://www.youtube.com/watch?v=dQQYpXnP7BU)")
     
     # Language support for transcription
     parser.add_argument("--language", "--lang", default="en", 
@@ -26,6 +27,10 @@ def parse_arguments() -> argparse.Namespace:
     
     # YouTube URL for comparison
     parser.add_argument("--youtube", help="YouTube URL for comparison")
+    
+    # Video cache directory
+    parser.add_argument("--cache-dir", default="video_cache", 
+                       help="Directory to store downloaded YouTube videos (default: video_cache)")
     
     # Logging level
     parser.add_argument("--log-level", default="INFO", help="Logging level")

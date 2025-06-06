@@ -6,6 +6,7 @@ from logging_utils import get_logger, TRACE, setup_logging
 from video_source import VideoSource
 from transcription import TranscriptionEngine
 from caption_overlay import CaptionOverlay
+from core.youtube_downloader import YouTubeDownloader
 
 # Import multi-language engine
 try:
@@ -29,6 +30,39 @@ def ensure_logs_dir():
     os.makedirs(logs_dir, exist_ok=True)
     return logs_dir
 
+def resolve_video_path(video_input: str, cache_dir: str = "video_cache") -> str:
+    """Resolve video input to a local file path.
+    
+    If the input is a YouTube URL, download it first.
+    If it's a local file path, return as-is.
+    
+    Args:
+        video_input: Video file path or YouTube URL
+        cache_dir: Directory to store downloaded videos
+        
+    Returns:
+        str: Path to local video file
+        
+    Raises:
+        ValueError: If input is neither a valid file nor YouTube URL
+        FileNotFoundError: If local file doesn't exist
+    """
+    if not video_input:
+        raise ValueError("No video input provided")
+    
+    # Check if it's a YouTube URL
+    downloader = YouTubeDownloader(cache_dir)
+    if downloader.is_youtube_url(video_input):
+        logger.info(f"Detected YouTube URL: {video_input}")
+        return downloader.download_video(video_input)
+    
+    # Assume it's a local file path
+    if not os.path.exists(video_input):
+        raise FileNotFoundError(f"Video file not found: {video_input}")
+    
+    logger.info(f"Using local video file: {video_input}")
+    return video_input
+
 def initialize_video_source(args):
     """Initialize the video source.
     
@@ -39,8 +73,11 @@ def initialize_video_source(args):
         VideoSource: Initialized video source
     """
     try:
-        video_source = VideoSource(args.video_file, start_time=args.seek)
-        logger.info(f"Initialized video source with file: {args.video_file}, start_time: {args.seek}")
+        # Resolve video path (download if YouTube URL)
+        video_path = resolve_video_path(args.video_file, args.cache_dir)
+        
+        video_source = VideoSource(video_path, start_time=args.seek)
+        logger.info(f"Initialized video source with file: {video_path}, start_time: {args.seek}")
         return video_source
     except Exception as e:
         logger.error(f"Error initializing video source: {e}", exc_info=True)
