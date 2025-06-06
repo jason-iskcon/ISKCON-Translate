@@ -71,6 +71,10 @@ class VideoRunner:
                 # Translation cache for performance
                 self._translation_cache = {}
                 
+                # Translation buffer for concurrent display (eliminates delay)
+                self._translation_buffer = {}
+                self._buffer_lock = threading.Lock()
+                
                 logger.info(f"Initialized Google Translator for target languages: {self.target_languages}")
             except ImportError:
                 logger.warning("Deep Translator not available. Install with: pip install deep-translator")
@@ -289,8 +293,11 @@ class VideoRunner:
             end_time = transcription.get('end', start_time + 2.0)
             duration = end_time - start_time
             
-            # Ensure reasonable duration for readability but cap for responsiveness
-            duration = max(1.0, min(duration, 3.0))  # Between 1.0s and 3.0s for balance
+            # Ensure reasonable duration - extend for better readability
+            # Remove artificial cap to allow natural speech rhythm
+            duration = max(2.0, duration)  # Minimum 2 seconds, but allow natural longer durations
+            if duration > 8.0:  # Only cap extremely long durations
+                duration = 8.0
             
             # Calculate relative timestamps by subtracting seek offset
             rel_start = start_time - self.video_source.start_time
@@ -315,12 +322,21 @@ class VideoRunner:
                 logger.warning(f"[TIMING] Caption timing out of bounds ({time_diff:.2f}s difference), dropping")
                 return
             
+            # Filter out bogus transcriptions and hallucinations
+            filtered_text = self._filter_bogus_transcriptions(text)
+            
+            if not filtered_text:
+                return
+            
+            # Apply Sanskrit vocabulary corrections for Chapter 6 terms
+            corrected_text = self._correct_sanskrit_vocabulary(filtered_text)
+            
             # Apply text processing to enhance caption quality
-            processed_text = self._process_caption_text(text, rel_start)
+            processed_text = self._process_caption_text(corrected_text, rel_start)
             
             # Skip empty captions after processing
             if not processed_text.strip():
-                logger.debug(f"[TEXT_PROCESSING] Caption removed after processing: '{text}'")
+                logger.debug(f"[TEXT_PROCESSING] Caption removed after processing: '{corrected_text}'")
                 return
             
             # Check if we have target languages to translate to
@@ -329,6 +345,9 @@ class VideoRunner:
             try:
                 # Clean the text for proper display (handle Unicode characters)
                 processed_text = self._clean_text_for_display(processed_text)
+                
+                # Start buffering translations for the next transcription (look-ahead)
+                self._buffer_translations(processed_text, rel_start_adjusted)
                 
                 # Add primary language caption (always English from transcription)
                 primary_caption = self.caption_overlay.add_caption(
@@ -340,32 +359,83 @@ class VideoRunner:
                     is_primary=True
                 )
                     
-                # Translate to all target languages for concurrent display
+                # Add ALL target language captions SIMULTANEOUSLY using buffered translations
                 if target_languages and hasattr(self, '_translator'):
                     for lang_code in target_languages:
                         try:
-                            # For short text (< 50 chars), translate inline for immediate concurrent display  
-                            if len(processed_text) < 50:
-                                self._translate_and_add_caption_fast(processed_text, lang_code, rel_start_adjusted, duration)
-                            else:
-                                # For longer text, use background thread to avoid blocking video
-                                def translate_long_text():
-                                    self._translate_and_add_caption_fast(processed_text, lang_code, rel_start_adjusted, duration)
+                            # Use buffered translation for instant concurrent display
+                            translated_text = self._get_buffered_translation(processed_text, rel_start_adjusted, lang_code)
+                            
+                            if translated_text and translated_text.strip() and translated_text != processed_text:
+                                # Clean the translated text for proper display
+                                cleaned_translated_text = self._clean_text_for_display(translated_text)
                                 
-                                # Start background translation
-                                translation_thread = threading.Thread(target=translate_long_text, daemon=True)
-                                translation_thread.start()
+                                # Add translated caption with EXACT SAME timing as primary for concurrent display
+                                secondary_caption = self.caption_overlay.add_caption(
+                                    cleaned_translated_text, 
+                                    rel_start_adjusted,  # EXACT same timing
+                                    duration,  # EXACT same duration
+                                    is_absolute=False, 
+                                    language=lang_code, 
+                                    is_primary=False
+                                )
                                     
+                                if self.frame_count % 30 == 0:
+                                    logger.info(f"[CAPTION] Added {lang_code} CONCURRENT: {cleaned_translated_text!r}")
                         except Exception as e:
-                            logger.warning(f"Failed to translate to {lang_code}: {e}")
+                            logger.warning(f"Failed to add concurrent caption for {lang_code}: {e}")
                 
                 if self.frame_count % 30 == 0:  # Only log success every 30 frames
-                    logger.info("[CAPTION] Added successfully")
+                    logger.info("[CAPTION] All languages added CONCURRENTLY")
             except Exception as e:
                 logger.error(f"Error adding caption: {e}")
                 
         except Exception as e:
             logger.error(f"Error handling transcription: {e}")
+    
+    def _filter_bogus_transcriptions(self, text: str) -> str:
+        """Filter out bogus transcriptions and hallucinations.
+        
+        Args:
+            text: Transcribed text to filter
+            
+        Returns:
+            Filtered text or empty string if bogus
+        """
+        text_lower = text.lower().strip()
+        
+        # Skip empty or very short text
+        if len(text_lower) < 2:
+            return ""
+        
+        # Filter out obvious bogus content
+        bogus_patterns = [
+            "osho", "www.osho.com", "copyright", "© osho",
+            "transcribed by", "subtitles by", "captions by",
+            "www.", ".com", ".org", ".net",
+            "thank you for watching", "subscribe",
+            "like and subscribe", "bell icon"
+        ]
+        
+        # Check for bogus patterns
+        for pattern in bogus_patterns:
+            if pattern in text_lower:
+                logger.debug(f"Filtered bogus transcription: '{text}'")
+                return ""
+        
+        # Filter out single Sanskrit words that appear during silence (likely hallucinations)
+        words = text_lower.split()
+        if len(words) <= 2:  # 1-2 words only
+            sanskrit_words = [
+                "krishna", "arjuna", "dharma", "karma", "yoga", "gita",
+                "bhagavad", "prabhu", "swami", "guru", "ashram", "mantra"
+            ]
+            # If it's just Sanskrit words and very short, likely hallucination during silence
+            if all(word in sanskrit_words for word in words):
+                logger.debug(f"Filtered likely Sanskrit hallucination: '{text}'")
+                return ""
+        
+        return text
     
     def _process_caption_text(self, text: str, timestamp: float) -> str:
         """
@@ -700,6 +770,143 @@ class VideoRunner:
         except Exception as e:
             logger.warning(f"Failed to translate to {lang_code}: {e}")
             return False
+    
+    def _buffer_translations(self, text: str, timestamp: float):
+        """Pre-translate text and buffer for concurrent display.
+        
+        Args:
+            text: Text to translate
+            timestamp: Timestamp for the translation
+        """
+        if not hasattr(self, '_translator') or not self.target_languages:
+            return
+            
+        def translate_and_buffer():
+            try:
+                with self._buffer_lock:
+                    # Pre-translate to all target languages
+                    for lang_code in self.target_languages:
+                        translated_text = self._translate_text(text, target_language=lang_code)
+                        if translated_text and translated_text.strip():
+                            # Store in buffer with timestamp key
+                            buffer_key = f"{timestamp}:{lang_code}"
+                            self._translation_buffer[buffer_key] = {
+                                'text': translated_text,
+                                'timestamp': timestamp,
+                                'language': lang_code,
+                                'ready': True
+                            }
+                            
+                    # Clean old buffer entries (older than 30 seconds)
+                    current_time = timestamp
+                    keys_to_remove = [
+                        key for key, value in self._translation_buffer.items()
+                        if current_time - value['timestamp'] > 30.0
+                    ]
+                    for key in keys_to_remove:
+                        del self._translation_buffer[key]
+                        
+            except Exception as e:
+                logger.warning(f"Translation buffering failed: {e}")
+        
+        # Start buffering in background thread to avoid blocking
+        buffer_thread = threading.Thread(target=translate_and_buffer, daemon=True)
+        buffer_thread.start()
+
+    def _get_buffered_translation(self, text: str, timestamp: float, lang_code: str) -> str:
+        """Get buffered translation if available, otherwise translate immediately.
+        
+        Args:
+            text: Original text
+            timestamp: Timestamp for the translation
+            lang_code: Target language code
+            
+        Returns:
+            Translated text
+        """
+        try:
+            with self._buffer_lock:
+                buffer_key = f"{timestamp}:{lang_code}"
+                if buffer_key in self._translation_buffer:
+                    buffered = self._translation_buffer[buffer_key]
+                    if buffered['ready']:
+                        return buffered['text']
+        except Exception as e:
+            logger.warning(f"Buffer lookup failed: {e}")
+        
+        # Fallback to immediate translation
+        return self._translate_text(text, target_language=lang_code)
+    
+    def _correct_sanskrit_vocabulary(self, text: str) -> str:
+        """Correct common mishearings of Sanskrit terms using Chapter 6 vocabulary.
+        
+        Args:
+            text: Transcribed text to correct
+            
+        Returns:
+            Text with corrected Sanskrit terms
+        """
+        # Sanskrit term corrections for common Whisper mishearings
+        # This fixes terms AFTER transcription to avoid hallucinations
+        corrections = {
+            # Chapter 6 Dhyana Yoga terms
+            'diana': 'dhyāna', 'dianna': 'dhyāna', 'dhana': 'dhyāna', 'dyana': 'dhyāna', 'dhyan': 'dhyāna',
+            'kusha': 'kuśa', 'kusa': 'kuśa', 'kosha': 'kuśa',
+            'abhyasa': 'abhyāsa', 'abhiasa': 'abhyāsa', 'abhyassa': 'abhyāsa',
+            'vairagya': 'vairāgya', 'vairagya': 'vairāgya', 'vairaga': 'vairāgya',
+            'pratyahara': 'pratyāhāra', 'pratyaahara': 'pratyāhāra', 'pratiahara': 'pratyāhāra',
+            'pranayama': 'prāṇāyāma', 'pranayaama': 'prāṇāyāma', 'pranaayama': 'prāṇāyāma',
+            'asana': 'āsana', 'aasana': 'āsana', 'aasanna': 'āsana',
+            'dhaarana': 'dhāraṇā', 'dharana': 'dhāraṇā', 'dhaaranaa': 'dhāraṇā',
+            'samadhi': 'samādhi', 'samaadhi': 'samādhi', 'samaadhii': 'samādhi',
+            
+            # Common names and terms
+            'krishna': 'Krishna', 'krsna': 'Krsna', 'krisna': 'Krishna',
+            'arjuna': 'Arjuna', 'arjun': 'Arjuna', 'arjunaa': 'Arjuna',
+            'bhagavad': 'Bhagavad', 'bhagavat': 'Bhagavad', 'bhagwad': 'Bhagavad',
+            'prabhupaada': 'Prabhupāda', 'prabhupada': 'Prabhupāda', 'prabhupad': 'Prabhupāda',
+            'madhusudana': 'Madhusūdana', 'madhusudan': 'Madhusūdana',
+            'janardana': 'Janārdana', 'janardan': 'Janārdana',
+            'govinda': 'Govinda', 'govind': 'Govinda',
+            'keshava': 'Keśava', 'keshav': 'Keśava', 'kesava': 'Keśava',
+            
+            # Philosophy terms
+            'atma': 'ātmā', 'aatma': 'ātmā', 'aatmaa': 'ātmā',
+            'paramatma': 'paramātmā', 'paramaatma': 'paramātmā', 'paramaatmaa': 'paramātmā',
+            'moksha': 'mokṣa', 'moksh': 'mokṣa', 'mokshaa': 'mokṣa',
+            'samsara': 'samsāra', 'samsaar': 'samsāra', 'samsaara': 'samsāra',
+            'brahmacaari': 'brahmacārī', 'brahmachari': 'brahmacārī', 'brahmacari': 'brahmacārī',
+            'varnasrama': 'varṇāśrama', 'varnashrama': 'varṇāśrama', 'varna ashrama': 'varṇāśrama',
+        }
+        
+        corrected_text = text
+        
+        # Apply corrections (case-insensitive matching, case-preserving replacement)
+        for wrong_spelling, correct_spelling in corrections.items():
+            # Replace whole words only to avoid partial matches
+            import re
+            pattern = r'\b' + re.escape(wrong_spelling) + r'\b'
+            
+            # Case-insensitive replacement
+            def replace_func(match):
+                matched_text = match.group(0)
+                # Preserve original case pattern
+                if matched_text.isupper():
+                    return correct_spelling.upper()
+                elif matched_text.islower():
+                    return correct_spelling.lower()
+                elif matched_text.istitle():
+                    return correct_spelling.title()
+                else:
+                    return correct_spelling
+            
+            corrected_text = re.sub(pattern, replace_func, corrected_text, flags=re.IGNORECASE)
+        
+        # Log corrections if any were made
+        if corrected_text != text:
+            logger.info(f"[SANSKRIT] Corrected: '{text}' -> '{corrected_text}'")
+        
+        return corrected_text
     
     def run(self):
         """Run the main video playback and synchronization loop."""

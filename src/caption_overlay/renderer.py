@@ -31,15 +31,15 @@ class CaptionRenderer:
         # Color mapping for different languages
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary)
-            'it': (255, 255, 150),     # Pale yellow for Italian
+            'it': (150, 255, 150),     # Pale green for Italian
             'fr': (150, 255, 255),     # Pale blue for French
-            'es': (150, 255, 150),     # Pale green for Spanish
-            'de': (255, 150, 255),     # Pale magenta for German
-            'pt': (255, 200, 150),     # Pale orange for Portuguese
-            'ru': (200, 150, 255),     # Pale purple for Russian
+            'es': (255, 150, 255),     # Pale magenta for Spanish
+            'de': (255, 200, 150),     # Pale orange for German
+            'pt': (200, 150, 255),     # Pale purple for Portuguese
+            'ru': (180, 180, 255),     # Light blue for Russian
             'ja': (255, 150, 200),     # Pale pink for Japanese
-            'zh': (200, 255, 150),     # Pale lime for Chinese
-            'ar': (150, 200, 255),     # Light blue for Arabic
+            'zh': (150, 200, 255),     # Light blue for Chinese
+            'ar': (255, 180, 180),     # Light red for Arabic
         }
         
         logger.debug(f"CaptionRenderer initialized with style: {self.style}")
@@ -72,9 +72,9 @@ class CaptionRenderer:
         time_in_caption = current_time - caption_start
         time_until_end = caption_end - current_time
         
-        # Quick but visible fade durations for responsive lip sync
-        fade_in_duration = min(0.1, caption_duration / 5)  # 100ms max fade in
-        fade_out_duration = min(0.1, caption_duration / 5)  # 100ms max fade out
+        # Longer fade durations for better readability - don't fade out too early
+        fade_in_duration = min(0.05, caption_duration / 8)  # Very quick 50ms fade in
+        fade_out_duration = min(0.2, caption_duration / 6)   # Longer 200ms fade out for better readability
         
         fade_factor = 1.0
         
@@ -138,44 +138,81 @@ class CaptionRenderer:
         
         return line_heights, line_widths, total_text_height, max_text_width
     
-    def calculate_text_position(self, frame_width, frame_height, max_text_width, total_text_height, caption_index=0):
-        """Calculate position for text block on frame.
+    def calculate_text_position(self, frame_width, frame_height, max_text_width, total_text_height, caption_index=0, active_captions=None):
+        """Calculate text and background positions with intelligent overlap prevention.
         
         Args:
             frame_width: Width of the video frame
             frame_height: Height of the video frame
-            max_text_width: Maximum width of text block
-            total_text_height: Total height of text block
+            max_text_width: Maximum width of text lines
+            total_text_height: Total height of all text lines
             caption_index: Index for stacking multiple captions
+            active_captions: List of other active captions to avoid overlaps
             
         Returns:
             tuple: (text_x, text_y, bg_x1, bg_y1, bg_x2, bg_y2)
         """
-        # Calculate text block position (centered at bottom with vertical offset for multiple captions)
-        vertical_offset = caption_index * (total_text_height + 20)  # 20px spacing between captions
+        # Base position - very close to bottom with minimal margin
+        base_margin = 20  # Reduced from 30 to 20
         
-        # Center the text block horizontally and vertically within its background
-        bg_padding = self.style.padding
-        text_block_x = (frame_width - max_text_width) // 2
-        text_block_y = frame_height - self.style.y_offset - total_text_height - vertical_offset
+        # Calculate background dimensions with padding
+        padding = self.style.padding  # Use existing padding attribute
         
-        # Calculate background rectangle first
-        bg_x1 = text_block_x - bg_padding
-        bg_y1 = text_block_y - bg_padding
-        bg_x2 = text_block_x + max_text_width + bg_padding
-        bg_y2 = text_block_y + total_text_height + bg_padding
+        bg_width = max_text_width + (2 * padding)
+        bg_height = total_text_height + (2 * padding)
         
-        # Ensure background stays within frame bounds
-        bg_x1 = max(0, min(bg_x1, frame_width - 1))
-        bg_y1 = max(0, min(bg_y1, frame_height - 1))
-        bg_x2 = max(0, min(bg_x2, frame_width - 1))
-        bg_y2 = max(0, min(bg_y2, frame_height - 1))
+        # Calculate dynamic spacing based on caption height and number of lines
+        line_count = max(1, total_text_height // 25)  # Estimate lines (25px per line)
         
-        # Recalculate text position to be centered within the background
-        text_block_x = (bg_x1 + bg_x2 - max_text_width) // 2
-        text_block_y = (bg_y1 + bg_y2 - total_text_height) // 2
+        # Smart spacing calculation - minimal gaps for tight display
+        if line_count > 1:
+            # Multi-line captions need minimal extra space
+            base_spacing = bg_height + 2  # Reduced from 8 to 2
+        else:
+            # Single line captions should be very tight
+            base_spacing = bg_height + 1  # Reduced from 4 to 1
+            
+        # Calculate vertical position with intelligent spacing
+        if caption_index == 0:
+            # Primary caption at bottom
+            bg_y2 = frame_height - base_margin
+            bg_y1 = bg_y2 - bg_height
+        else:
+            # Secondary captions stacked above with dynamic spacing
+            # Check if previous captions were multi-line to adjust spacing
+            accumulated_height = base_margin + bg_height
+            
+            for i in range(caption_index):
+                # Add spacing for each previous caption
+                prev_spacing = base_spacing
+                
+                # If we have active caption info, use actual heights
+                if active_captions and i < len(active_captions):
+                    prev_caption = active_captions[i]
+                    prev_lines = self.process_caption_text(prev_caption.get('text', ''))
+                    if len(prev_lines) > 1:
+                        # Previous caption was multi-line, add minimal extra space
+                        prev_spacing += 2  # Reduced from 5 to 2
+                
+                accumulated_height += prev_spacing
+            
+            bg_y2 = frame_height - accumulated_height
+            bg_y1 = bg_y2 - bg_height
+            
+            # Ensure caption doesn't go off the top of the screen
+            if bg_y1 < 20:
+                bg_y1 = 20
+                bg_y2 = bg_y1 + bg_height
         
-        return text_block_x, text_block_y, bg_x1, bg_y1, bg_x2, bg_y2
+        # Horizontal centering
+        bg_x1 = (frame_width - bg_width) // 2
+        bg_x2 = bg_x1 + bg_width
+        
+        # Text position (top-left corner of text area)
+        text_x = bg_x1 + padding
+        text_y = bg_y1 + padding
+        
+        return text_x, text_y, bg_x1, bg_y1, bg_x2, bg_y2
     
     def render_background(self, frame, bg_coords, fade_factor):
         """Render background rectangle for caption.
@@ -257,7 +294,7 @@ class CaptionRenderer:
             cv2.LINE_AA
         )
     
-    def render_caption(self, frame, caption, current_time, caption_index=0, language='en'):
+    def render_caption(self, frame, caption, current_time, caption_index=0, language='en', all_active_captions=None):
         """Render a single caption on the frame.
         
         Args:
@@ -266,6 +303,7 @@ class CaptionRenderer:
             current_time: Current relative time
             caption_index: Index for stacking multiple captions
             language: Language code for color selection
+            all_active_captions: List of all active captions for intelligent positioning
             
         Returns:
             numpy.ndarray: Frame with caption rendered
@@ -289,7 +327,7 @@ class CaptionRenderer:
             
             # Calculate positions
             text_x, text_y, bg_x1, bg_y1, bg_x2, bg_y2 = self.calculate_text_position(
-                frame_width, frame_height, max_text_width, total_text_height, caption_index
+                frame_width, frame_height, max_text_width, total_text_height, caption_index, all_active_captions
             )
             
             # Render background
@@ -365,7 +403,7 @@ class CaptionRenderer:
             
             if fade_factor > 0.05:  # Lowered threshold to match core logic
                 language = caption.get('language', 'en')
-                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i, language=language)
+                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i, language=language, all_active_captions=active_captions)
                 rendered_count += 1
         
         # Render secondary language captions on top
@@ -377,7 +415,7 @@ class CaptionRenderer:
                 language = caption.get('language', 'en')
                 # Offset secondary captions above primary ones
                 caption_index = len(primary_captions) + i
-                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=caption_index, language=language)
+                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=caption_index, language=language, all_active_captions=active_captions)
                 rendered_count += 1
         
         if should_log and rendered_count > 0:

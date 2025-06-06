@@ -27,14 +27,16 @@ from .utils import log_audio_info
 
 logger = get_logger('transcription.worker')
 
-# Chapter 7 Bhagavad Gita vocabulary for better transcription
-CHAPTER_7_VOCABULARY = (
-    "Bhagavad Gita Chapter 7 contains important Sanskrit terms: "
-    "Krishna, Arjuna, Brahman, yoga, Vasudeva, Vishnu, dharma, "
-    "bhakti, Gita, Pārtha, Krsna, dāsa, Prabhupāda, mantra, "
-    "Kuntī, rishi, swami, varna, ashram, Balarāma, Chandra, "
-    "Devi, Ganga, Janārdana. These sacred names and concepts "
-    "appear frequently in spiritual discourse."
+# Chapter 6 Bhagavad Gita Vocabulary (Dhyāna Yoga - Meditation)
+# Key Sanskrit terms for meditation and yoga from Chapter 6
+CHAPTER_6_VOCABULARY = (
+    "yogī samādhi dhyāna kuśa SixDhyāna yogīs yoga dasa Vishnu Vasudeva Varna Swami Rishi "
+    "Prabhupāda Mantra Madhusūdana Kuntī Krsna Krishna Gita Ganga Dāsa Dharma Devi Dasa "
+    "Chandra Bhakti Bhagavad Balarāma Ashram Arjuna Pārtha Janārdana Govinda Keśava "
+    "Brahman abhyāsa vairāgya pratyāhāra prāṇāyāma āsana yama niyama dhāraṇā samādhi "
+    "manas cittam vṛttis nirodha ṛṣi munis siddhas Nārada Vyāsa Śiva Brahmā Viṣṇu "
+    "ātmā paramātmā jīva mokṣa mukti samsāra karma dharma adharma satsang guru śiṣya "
+    "tapas tyāga sannyāsa vānaprastha gṛhastha brahmacārī varṇāśrama"
 )
 
 def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue, 
@@ -248,8 +250,8 @@ def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, en
                 condition_on_previous_text=True,  # Maintain language consistency
                 compression_ratio_threshold=2.4,  # Allow slightly more repetition for non-English
                 log_prob_threshold=-1.0,  # More lenient probability threshold for non-English
-                no_speech_threshold=0.6,  # Standard threshold
-                initial_prompt=CHAPTER_7_VOCABULARY  # Add Gita vocabulary context
+                no_speech_threshold=0.7,  # Higher threshold to reduce hallucinations during silence/laughter
+                # Remove initial_prompt to prevent Sanskrit word hallucinations during silence/noise
             )
             segments = list(segments)  # Convert generator to list to catch errors early
             return segments, info
