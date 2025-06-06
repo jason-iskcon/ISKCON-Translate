@@ -310,7 +310,7 @@ class CaptionRenderer:
         return frame
     
     def render_text_line(self, frame, line, x, y, fade_factor, language='en'):
-        """Render a single line of text with proper video-responsive sizing.
+        """🚨 NUCLEAR EMERGENCY MODE: Ultra-fast OpenCV-only text rendering.
         
         Args:
             frame: Video frame to render on
@@ -327,7 +327,7 @@ class CaptionRenderer:
             return frame
         
         try:
-            # Get language-specific color
+            # 🚨 EMERGENCY: Use ONLY OpenCV for maximum speed - no PIL at all
             text_color = self.language_colors.get(language, self.language_colors['en'])
             
             # Convert BGR to OpenCV format and apply fade
@@ -337,10 +337,9 @@ class CaptionRenderer:
                 int(text_color[2] * fade_factor)
             )
             
-            # Use video dimension-aware font scaling (RESTORED)
-            base_scale = self.style.get_scaled_font_size() / 30.0  # Convert PIL size to OpenCV scale
-            scale = base_scale * 0.8  # Slightly smaller for better performance
-            thickness = max(1, int(scale * 2.5))  # Proportional thickness
+            # Fixed fast scale for maximum performance
+            scale = 0.8  # Fixed scale - no calculations
+            thickness = 2  # Fixed thickness - no calculations
             
             # Calculate text position for OpenCV (baseline positioning)
             text_size = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
@@ -356,7 +355,7 @@ class CaptionRenderer:
             return frame
             
         except Exception as e:
-            # Emergency fallback
+            # Emergency fallback - just render something
             cv2.putText(frame, str(line)[:50], (x, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 
                        0.6, (255, 255, 255), 2, cv2.LINE_AA)
             return frame
@@ -457,14 +456,12 @@ class CaptionRenderer:
         Returns:
             numpy.ndarray: Frame with all captions rendered
         """
-        # EMERGENCY DEMO MODE: Disable all slow logging and validation
-        # Skip expensive caption counting and duplicate detection for speed
-        
+        # 🚨 NUCLEAR EMERGENCY MODE: Skip ALL logging and validation for maximum speed
         # PERFORMANCE OPTIMIZATION: Fast exit if no captions
         if not active_captions:
             return frame
         
-        # EMERGENCY: Skip all logging for maximum performance
+        # Skip ALL logging, validation, and duplicate detection for maximum performance
         result_frame = frame.copy()
         
         # Sort captions by start time (oldest first) to maintain proper stacking order
