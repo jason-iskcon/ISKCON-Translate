@@ -27,7 +27,33 @@ class CaptionRenderer:
         """
         self.style = style_config or CaptionStyleConfig()
         self.font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # Color mapping for different languages
+        self.language_colors = {
+            'en': (255, 255, 255),     # White for English (primary)
+            'it': (255, 255, 150),     # Pale yellow for Italian
+            'fr': (150, 255, 255),     # Pale blue for French
+            'es': (150, 255, 150),     # Pale green for Spanish
+            'de': (255, 150, 255),     # Pale magenta for German
+            'pt': (255, 200, 150),     # Pale orange for Portuguese
+            'ru': (200, 150, 255),     # Pale purple for Russian
+            'ja': (255, 150, 200),     # Pale pink for Japanese
+            'zh': (200, 255, 150),     # Pale lime for Chinese
+            'ar': (150, 200, 255),     # Light blue for Arabic
+        }
+        
         logger.debug(f"CaptionRenderer initialized with style: {self.style}")
+    
+    def get_language_color(self, language: str = 'en') -> tuple:
+        """Get the color for a specific language.
+        
+        Args:
+            language: Language code (e.g., 'en', 'it', 'fr')
+            
+        Returns:
+            BGR color tuple for the language
+        """
+        return self.language_colors.get(language, (255, 255, 255))  # Default to white
     
     def calculate_fade_factor(self, caption, current_time):
         """Calculate fade factor for smooth caption transitions.
@@ -180,7 +206,7 @@ class CaptionRenderer:
         
         return frame
     
-    def render_text_line(self, frame, line, x, y, fade_factor):
+    def render_text_line(self, frame, line, x, y, fade_factor, language='en'):
         """Render a single line of text with shadow.
         
         Args:
@@ -189,6 +215,7 @@ class CaptionRenderer:
             x: X position for text
             y: Y position for text
             fade_factor: Fade factor for text opacity
+            language: Language code for color selection
         """
         if not line.strip():
             return
@@ -207,8 +234,8 @@ class CaptionRenderer:
             cv2.LINE_AA
         )
         
-        # Draw main text with fade effect applied
-        text_color = list(self.style.font_color)
+        # Get language-specific color
+        text_color = list(self.get_language_color(language))
         if len(text_color) == 3:  # If no alpha channel, add one
             text_color = text_color + [255]  # Fully opaque by default
         
@@ -230,7 +257,7 @@ class CaptionRenderer:
             cv2.LINE_AA
         )
     
-    def render_caption(self, frame, caption, current_time, caption_index=0):
+    def render_caption(self, frame, caption, current_time, caption_index=0, language='en'):
         """Render a single caption on the frame.
         
         Args:
@@ -238,6 +265,7 @@ class CaptionRenderer:
             caption: Caption dictionary to render
             current_time: Current relative time
             caption_index: Index for stacking multiple captions
+            language: Language code for color selection
             
         Returns:
             numpy.ndarray: Frame with caption rendered
@@ -288,8 +316,8 @@ class CaptionRenderer:
                 )
                 x = (frame_width - w) // 2  # Center each line horizontally
                 
-                # Render the text line
-                self.render_text_line(frame, line, x, y, fade_factor)
+                # Render the text line with language-specific color
+                self.render_text_line(frame, line, x, y, fade_factor, language)
                 
                 # Move to next line position with spacing
                 y += h + 5
@@ -323,18 +351,38 @@ class CaptionRenderer:
         # Sort captions by start time (oldest first) to maintain proper stacking order
         active_captions = sorted(active_captions, key=lambda x: x['start_time'])
         
+        # Separate primary and secondary language captions for proper layering
+        primary_captions = [c for c in active_captions if c.get('is_primary', True)]
+        secondary_captions = [c for c in active_captions if not c.get('is_primary', True)]
+        
         # Process each active caption
         rendered_count = 0
-        for i, caption in enumerate(active_captions):
+        
+        # Render primary language captions first (bottom layer)
+        for i, caption in enumerate(primary_captions):
             # Only render if fade factor is significant
             fade_factor = self.calculate_fade_factor(caption, current_time)
             
             if fade_factor > 0.05:  # Lowered threshold to match core logic
-                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i)
+                language = caption.get('language', 'en')
+                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=i, language=language)
+                rendered_count += 1
+        
+        # Render secondary language captions on top
+        for i, caption in enumerate(secondary_captions):
+            # Only render if fade factor is significant
+            fade_factor = self.calculate_fade_factor(caption, current_time)
+            
+            if fade_factor > 0.05:
+                language = caption.get('language', 'en')
+                # Offset secondary captions above primary ones
+                caption_index = len(primary_captions) + i
+                result_frame = self.render_caption(result_frame, caption, current_time, caption_index=caption_index, language=language)
                 rendered_count += 1
         
         if should_log and rendered_count > 0:
-            logger.debug(f"[RENDER] Rendered {rendered_count}/{len(active_captions)} captions")
+            languages_rendered = set(c.get('language', 'en') for c in active_captions if self.calculate_fade_factor(c, current_time) > 0.05)
+            logger.debug(f"[RENDER] Rendered {rendered_count}/{len(active_captions)} captions in languages: {languages_rendered}")
         
         # Log rendering performance warnings only
         render_time = (time.time() - render_start) * 1000  # Convert to milliseconds

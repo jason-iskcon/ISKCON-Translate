@@ -89,7 +89,7 @@ class CaptionOverlay:
         
         logger.debug("CaptionOverlay initialized")
     
-    def add_caption(self, text, timestamp, duration=2.5, is_absolute=False, seamless=True):
+    def add_caption(self, text, timestamp, duration=2.5, is_absolute=False, seamless=True, language='en', is_primary=True):
         """Add a caption to be displayed.
         
         Args:
@@ -98,11 +98,13 @@ class CaptionOverlay:
             duration: How long to display the caption in seconds (reduced to 1.0s)
             is_absolute: If True, timestamp is treated as absolute system time
             seamless: If True, will try to merge with previous caption if similar
+            language: Language code for the caption (e.g., 'en', 'fr', 'it')
+            is_primary: Whether this is a primary language caption
             
         Returns:
             dict: The added caption or None if skipped
         """
-        return self.orchestrator.add_caption(text, timestamp, duration, is_absolute, seamless)
+        return self.orchestrator.add_caption(text, timestamp, duration, is_absolute, seamless, language, is_primary)
     
     def set_video_start_time(self, start_time):
         """Set the video's start time to handle offset captions.

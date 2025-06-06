@@ -27,6 +27,15 @@ from .utils import log_audio_info
 
 logger = get_logger('transcription.worker')
 
+# Chapter 7 Bhagavad Gita vocabulary for better transcription
+CHAPTER_7_VOCABULARY = (
+    "Bhagavad Gita Chapter 7 contains important Sanskrit terms: "
+    "Krishna, Arjuna, Brahman, yoga, Vasudeva, Vishnu, dharma, "
+    "bhakti, Gita, Pārtha, Krsna, dāsa, Prabhupāda, mantra, "
+    "Kuntī, rishi, swami, varna, ashram, Balarāma, Chandra, "
+    "Devi, Ganga, Janārdana. These sacred names and concepts "
+    "appear frequently in spiritual discourse."
+)
 
 def run_transcription_worker(audio_queue: queue.Queue, result_queue: queue.Queue, 
                            model: WhisperModel, is_running_flag: threading.Event,
@@ -181,16 +190,6 @@ def _process_audio_segment(audio_data, timestamp: float, model: WhisperModel,
         logger.debug(f"[{worker_name}] Starting audio transcription...")
         start_process_time = time.time()
         
-        # Create initial prompt with Chapter 7 Bhagavad Gita vocabulary for better transcription
-        chapter_7_vocabulary = (
-            "Bhagavad Gita Chapter 7 contains important Sanskrit terms: "
-            "Krishna, Arjuna, Brahman, yoga, Vasudeva, Vishnu, dharma, "
-            "bhakti, Gita, Pārtha, Krsna, dāsa, Prabhupāda, mantra, "
-            "Kuntī, rishi, swami, varna, ashram, Balarāma, Chandra, "
-            "Devi, Ganga, Janārdana. These sacred names and concepts "
-            "appear frequently in spiritual discourse."
-        )
-        
         # Transcribe the audio with retry logic
         segments, info = _transcribe_with_retry(model, audio_data, worker_name, engine_instance, performance_monitor, language)
         
@@ -246,7 +245,11 @@ def _transcribe_with_retry(model: WhisperModel, audio_data, worker_name: str, en
                 beam_size=5,
                 word_timestamps=True,
                 temperature=0.0,  # Disable sampling for more consistent results
-                initial_prompt=chapter_7_vocabulary  # Add Gita vocabulary context
+                condition_on_previous_text=True,  # Maintain language consistency
+                compression_ratio_threshold=2.4,  # Allow slightly more repetition for non-English
+                log_prob_threshold=-1.0,  # More lenient probability threshold for non-English
+                no_speech_threshold=0.6,  # Standard threshold
+                initial_prompt=CHAPTER_7_VOCABULARY  # Add Gita vocabulary context
             )
             segments = list(segments)  # Convert generator to list to catch errors early
             return segments, info

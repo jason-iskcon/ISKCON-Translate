@@ -17,6 +17,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--language", "--lang", default="en", 
                        help="Language code for transcription (e.g., 'en', 'fr', 'it', 'es', 'de')")
     
+    # Secondary language support for concurrent display
+    parser.add_argument("--secondary-languages", "--sec-lang", nargs='+', default=[], 
+                       help="Additional language codes for concurrent display (e.g., 'it', 'es')")
+    
     # Comparison mode
     parser.add_argument("--comparison", action="store_true", help="Enable comparison mode")
     

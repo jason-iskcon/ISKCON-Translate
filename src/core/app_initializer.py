@@ -7,6 +7,12 @@ from video_source import VideoSource
 from transcription import TranscriptionEngine
 from caption_overlay import CaptionOverlay
 
+# Import multi-language engine
+try:
+    from transcription.multi_language_engine import MultiLanguageTranscriptionEngine
+except ImportError:
+    from src.transcription.multi_language_engine import MultiLanguageTranscriptionEngine
+
 # Get logger instance
 logger = get_logger(__name__)
 
@@ -47,11 +53,24 @@ def initialize_transcriber(args):
         args: Command line arguments
         
     Returns:
-        TranscriptionEngine: Initialized transcription engine
+        TranscriptionEngine: Initialized transcription engine (always English for source)
     """
     try:
-        transcriber = TranscriptionEngine(language=args.language)
-        logger.info(f"Initialized transcription engine with language: {args.language}")
+        # Always transcribe in English first to get the source language
+        # Then translate to both primary and secondary languages for concurrent display
+        transcriber = TranscriptionEngine(language="en")  # Always English source
+        logger.info(f"Initialized transcription engine with source language: en")
+        
+        # Collect all target languages for translation
+        target_languages = []
+        if args.language != "en":  # If primary language is not English, add it as translation target
+            target_languages.append(args.language)
+        if args.secondary_languages:
+            target_languages.extend(args.secondary_languages)
+            
+        if target_languages:
+            logger.info(f"Target languages for concurrent display: {target_languages}")
+        
         return transcriber
     except Exception as e:
         logger.error(f"Error initializing transcription engine: {e}", exc_info=True)

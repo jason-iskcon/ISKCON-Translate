@@ -42,14 +42,16 @@ class CaptionCore:
         self._last_caption_time = 0.0
         self.video_start_time = 0.0  # Initialize video start time
         
-    def add_caption(self, text: str, timestamp: float, duration: float = 2.5, is_absolute: bool = False) -> dict:
+    def add_caption(self, text: str, timestamp: float, duration: float = 3.0, is_absolute: bool = False, language: str = 'en', is_primary: bool = True) -> dict:
         """Add a new caption with precise timing.
         
         Args:
             text: Caption text
             timestamp: Start time in seconds
-            duration: Display duration in seconds (default 2.5s for good readability)
+            duration: Display duration in seconds (default 3.0s for better readability)
             is_absolute: Whether timestamp is absolute time
+            language: Language code for the caption (e.g., 'en', 'fr', 'it')
+            is_primary: Whether this is a primary language caption
         
         Returns:
             dict: The added caption, or None if skipped
@@ -57,19 +59,24 @@ class CaptionCore:
         if not text:
             logger.warning("[CAPTION] Skipping empty caption.")
             return None
+        
         with self.caption_lock:
             # Store original timestamp for logging
             original_timestamp = timestamp
+            
             # Convert absolute timestamp to relative if needed
             if is_absolute:
                 timestamp = timestamp - self.video_start_time
+                
             # Negative timestamps are treated as 0
             if timestamp < 0:
                 logger.warning(f"[CAPTION] Negative timestamp {timestamp:.2f}, treating as 0.")
                 timestamp = 0.0
+                
             # Calculate end time
             end_time = timestamp + duration
-            # Add caption with precise timing
+            
+            # Add caption with precise timing and language information
             caption_id = len(self.captions) + 1
             caption = {
                 'id': caption_id,
@@ -79,13 +86,16 @@ class CaptionCore:
                 'duration': duration,
                 'added_at': time.time(),
                 'original_timestamp': original_timestamp,
-                'was_absolute': is_absolute
+                'was_absolute': is_absolute,
+                'language': language,
+                'is_primary': is_primary
             }
+            
             self.captions.append(caption)
             
             # Log caption addition with precise timing (less frequently for performance)
             if len(self.captions) % 5 == 0:  # Only log every 5th caption
-                logger.info(f"[CAPTION] Added caption #{caption_id}: '{text}' ({timestamp:.2f}s-{end_time:.2f}s)")
+                logger.info(f"[CAPTION] Added caption #{caption_id} [{language}]: '{text}' ({timestamp:.2f}s-{end_time:.2f}s)")
             
             # Track timing statistics
             current_time = time.time()
@@ -95,6 +105,7 @@ class CaptionCore:
                 if len(self._caption_intervals) > 10:
                     self._caption_intervals.pop(0)
             self._last_caption_time = current_time
+            
             return caption
     
     def get_active_captions(self, current_time: float) -> List[Dict[str, Any]]:
@@ -107,12 +118,13 @@ class CaptionCore:
             List of active captions
         """
         with self.caption_lock:
-            # Small timing buffer for good sync without breaking tests
+            # Small timing buffer for good sync without breaking tests, with earlier appearance
             timing_buffer = 0.033  # 33ms (1 frame at 30fps)
+            early_appearance_buffer = 0.100  # 100ms early appearance for better UX
             
-            # Calculate buffer times with moderate buffer for good timing
+            # Calculate buffer times with earlier appearance for better timing
             start_buffer = current_time - timing_buffer
-            end_buffer = current_time + timing_buffer
+            end_buffer = current_time + early_appearance_buffer  # Increased for earlier appearance
             
             # Find active captions with precise timing
             active_captions = []

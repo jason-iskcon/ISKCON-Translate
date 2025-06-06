@@ -79,7 +79,9 @@ def run_app(video_source, transcriber, caption_overlay, args):
             window_name="ISKCON-Translate Comparison" if args.comparison else "ISKCON-Translate",
             comparison_mode=args.comparison,
             youtube_url=args.youtube,
-            headless=args.headless
+            headless=args.headless,
+            secondary_languages=args.secondary_languages,
+            primary_language=args.language
         )
         
         # Start video playback

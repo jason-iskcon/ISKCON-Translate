@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 class VideoRunner:
     """Handles the main video playback and synchronization loop."""
     
-    def __init__(self, video_source, transcriber, caption_overlay, window_name="Video with Captions", comparison_mode=False, youtube_url=None, headless=False):
+    def __init__(self, video_source, transcriber, caption_overlay, window_name="Video with Captions", comparison_mode=False, youtube_url=None, headless=False, secondary_languages=None, primary_language="en"):
         """Initialize video runner.
         
         Args:
@@ -37,6 +37,8 @@ class VideoRunner:
             comparison_mode: Whether to show side-by-side translation comparison
             youtube_url: YouTube URL for comparison mode
             headless: Whether to run without GUI
+            secondary_languages: List of secondary language codes for real-time translation
+            primary_language: Primary language specified by user (will be translated from English)
         """
         self.video_source = video_source
         self.transcriber = transcriber
@@ -45,11 +47,34 @@ class VideoRunner:
         self.comparison_mode = comparison_mode
         self.youtube_url = youtube_url
         self.headless = headless
+        self.secondary_languages = secondary_languages or []
+        self.primary_language = primary_language
+        
+        # Create list of all target languages for translation
+        self.target_languages = []
+        if primary_language != "en":  # Add primary language if not English
+            self.target_languages.append(primary_language)
+        if self.secondary_languages:  # Add secondary languages
+            self.target_languages.extend(self.secondary_languages)
         
         # Initialize comparison mode components if needed
         if self.comparison_mode:
             self.translator = Translator()
             self.comparison_renderer = ComparisonRenderer()
+        
+        # Initialize Google Translator for multi-language support
+        if self.target_languages:
+            try:
+                from deep_translator import GoogleTranslator
+                self._translator = GoogleTranslator(source='en', target='it')  # We'll change target dynamically
+                
+                # Translation cache for performance
+                self._translation_cache = {}
+                
+                logger.info(f"Initialized Google Translator for target languages: {self.target_languages}")
+            except ImportError:
+                logger.warning("Deep Translator not available. Install with: pip install deep-translator")
+                self.target_languages = []  # Disable translations if no translator
         
         # Frame timing and statistics
         self.frame_count = 0
@@ -69,7 +94,7 @@ class VideoRunner:
         self._last_no_transcription_log_time = 0.0
         
         # Caption timing offset for better sync - reduce early timing for better audio sync
-        self.caption_timing_offset = -0.050  # 50ms early for better lip sync (reduced from 100ms)
+        self.caption_timing_offset = -0.025  # 25ms early for better lip sync (reduced from 50ms)
         
         # Initialize text processing components
         try:
@@ -298,15 +323,42 @@ class VideoRunner:
                 logger.debug(f"[TEXT_PROCESSING] Caption removed after processing: '{text}'")
                 return
             
-            # Add the caption with adjusted timing for better lip sync
-            if self.frame_count % 30 == 0:  # Only log caption addition details every 30 frames
-                logger.info(f"[CAPTION] Adding: {processed_text!r} at rel_start={rel_start_adjusted:.2f}s for {duration:.1f}s")
-                if processed_text != text:
-                    logger.debug(f"[TEXT_PROCESSING] Original: '{text}' -> Processed: '{processed_text}'")
+            # Check if we have target languages to translate to
+            target_languages = getattr(self, 'target_languages', [])
             
             try:
-                # Use adjusted timing for better lip sync
-                self.caption_overlay.add_caption(processed_text, rel_start_adjusted, duration, is_absolute=False)
+                # Clean the text for proper display (handle Unicode characters)
+                processed_text = self._clean_text_for_display(processed_text)
+                
+                # Add primary language caption (always English from transcription)
+                primary_caption = self.caption_overlay.add_caption(
+                    processed_text, 
+                    rel_start_adjusted, 
+                    duration, 
+                    is_absolute=False, 
+                    language='en', 
+                    is_primary=True
+                )
+                    
+                # Translate to all target languages for concurrent display
+                if target_languages and hasattr(self, '_translator'):
+                    for lang_code in target_languages:
+                        try:
+                            # For short text (< 50 chars), translate inline for immediate concurrent display  
+                            if len(processed_text) < 50:
+                                self._translate_and_add_caption_fast(processed_text, lang_code, rel_start_adjusted, duration)
+                            else:
+                                # For longer text, use background thread to avoid blocking video
+                                def translate_long_text():
+                                    self._translate_and_add_caption_fast(processed_text, lang_code, rel_start_adjusted, duration)
+                                
+                                # Start background translation
+                                translation_thread = threading.Thread(target=translate_long_text, daemon=True)
+                                translation_thread.start()
+                                    
+                        except Exception as e:
+                            logger.warning(f"Failed to translate to {lang_code}: {e}")
+                
                 if self.frame_count % 30 == 0:  # Only log success every 30 frames
                     logger.info("[CAPTION] Added successfully")
             except Exception as e:
@@ -497,6 +549,158 @@ class VideoRunner:
         logger.info(f"Current video time: {self.current_video_time:.3f}s")
         logger.info(f"Sync difference: {abs(audio_time - self.current_video_time)*1000:.2f}ms")
     
+    def _clean_text_for_display(self, text: str) -> str:
+        """Clean text for proper display by handling Unicode characters that OpenCV can't render.
+        
+        Args:
+            text: Input text that may contain Unicode characters
+            
+        Returns:
+            Cleaned text that OpenCV can display properly
+        """
+        try:
+            # First, ensure the text is properly decoded
+            if isinstance(text, bytes):
+                text = text.decode('utf-8', errors='replace')
+            
+            # Common Unicode character replacements for OpenCV compatibility
+            replacements = {
+                # French accents
+                'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a',
+                'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',
+                'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',
+                'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+                'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',
+                'ý': 'y', 'ÿ': 'y',
+                'ñ': 'n', 'ç': 'c',
+                
+                # Italian accents
+                'À': 'A', 'Á': 'A', 'Â': 'A', 'Ã': 'A', 'Ä': 'A', 'Å': 'A',
+                'È': 'E', 'É': 'E', 'Ê': 'E', 'Ë': 'E',
+                'Ì': 'I', 'Í': 'I', 'Î': 'I', 'Ï': 'I',
+                'Ò': 'O', 'Ó': 'O', 'Ô': 'O', 'Õ': 'O', 'Ö': 'O',
+                'Ù': 'U', 'Ú': 'U', 'Û': 'U', 'Ü': 'U',
+                'Ý': 'Y', 'Ÿ': 'Y',
+                'Ñ': 'N', 'Ç': 'C',
+                
+                # Sanskrit transliteration (common ISKCON diacriticals)
+                'ā': 'a', 'ī': 'i', 'ū': 'u',
+                'ṛ': 'r', 'ṝ': 'r', 'ḷ': 'l',
+                'ṅ': 'n', 'ñ': 'n', 'ṇ': 'n', 'ṁ': 'm',
+                'ś': 's', 'ṣ': 's',
+                'Ā': 'A', 'Ī': 'I', 'Ū': 'U',
+                'Ṛ': 'R', 'Ṝ': 'R', 'Ḷ': 'L',
+                'Ṅ': 'N', 'Ñ': 'N', 'Ṇ': 'N', 'Ṁ': 'M',
+                'Ś': 'S', 'Ṣ': 'S',
+                
+                # Common quotation marks and dashes
+                ''': "'", ''': "'", '"': '"', '"': '"',
+                '–': '-', '—': '-', '…': '...',
+                
+                # Other common problematic characters
+                '€': 'EUR', '£': 'GBP', '¥': 'JPY',
+                '°': 'deg', '±': '+/-', '×': 'x', '÷': '/',
+            }
+            
+            # Apply replacements
+            cleaned_text = text
+            for unicode_char, replacement in replacements.items():
+                cleaned_text = cleaned_text.replace(unicode_char, replacement)
+            
+            # As a fallback, remove any remaining non-ASCII characters that might cause issues
+            # but preserve common punctuation
+            import re
+            cleaned_text = re.sub(r'[^\x00-\x7F\x20-\x7E]', '?', cleaned_text)
+            
+            # Clean up multiple question marks that might result from the above
+            cleaned_text = re.sub(r'\?{2,}', '?', cleaned_text)
+            
+            return cleaned_text.strip()
+            
+        except Exception as e:
+            logger.warning(f"Error cleaning text for display: {e}")
+            # Fallback: return ASCII-only version
+            return ''.join(char if ord(char) < 128 else '?' for char in str(text))
+    
+    def _translate_text(self, text: str, target_language: str) -> str:
+        """Translate text to target language using Google Translate with caching.
+        
+        Args:
+            text: Text to translate
+            target_language: Target language code (e.g., 'it', 'es', 'fr')
+            
+        Returns:
+            Translated text or original text if translation fails
+        """
+        try:
+            # Create cache key
+            cache_key = f"{text}:{target_language}"
+            
+            # Check cache first
+            if hasattr(self, '_translation_cache') and cache_key in self._translation_cache:
+                return self._translation_cache[cache_key]
+            
+            # Create a new translator instance for the specific target language
+            from deep_translator import GoogleTranslator
+            translator = GoogleTranslator(source='auto', target=target_language)
+            result = translator.translate(text)
+            
+            # Cache the result
+            if hasattr(self, '_translation_cache'):
+                self._translation_cache[cache_key] = result
+                
+                # Limit cache size to prevent memory issues
+                if len(self._translation_cache) > 1000:
+                    # Remove oldest entries (simple FIFO)
+                    keys_to_remove = list(self._translation_cache.keys())[:100]
+                    for key in keys_to_remove:
+                        del self._translation_cache[key]
+            
+            return result if result and result.strip() else text
+            
+        except Exception as e:
+            logger.warning(f"Translation failed: {e}")
+            return text
+    
+    def _translate_and_add_caption_fast(self, text: str, lang_code: str, start_time: float, duration: float):
+        """Fast translation with immediate caption addition for concurrent display.
+        
+        Args:
+            text: Text to translate
+            lang_code: Target language code
+            start_time: Caption start time
+            duration: Caption duration
+        """
+        try:
+            # Use fast translation with caching
+            translated_text = self._translate_text(text, target_language=lang_code)
+            
+            if translated_text and translated_text.strip() and translated_text != text:
+                # Clean the translated text for proper display
+                cleaned_translated_text = self._clean_text_for_display(translated_text)
+                
+                # Add translated caption with SAME timing as primary for concurrent display
+                secondary_caption = self.caption_overlay.add_caption(
+                    cleaned_translated_text, 
+                    start_time, 
+                    duration, 
+                    is_absolute=False, 
+                    language=lang_code, 
+                    is_primary=False
+                )
+                    
+                if self.frame_count % 30 == 0:
+                    logger.info(f"[CAPTION] Added {lang_code}: {cleaned_translated_text!r}")
+                return True
+            else:
+                if self.frame_count % 30 == 0:
+                    logger.warning(f"[CAPTION] Translation failed or identical for {lang_code}: {translated_text!r}")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"Failed to translate to {lang_code}: {e}")
+            return False
+    
     def run(self):
         """Run the main video playback and synchronization loop."""
         try:
@@ -507,8 +711,8 @@ class VideoRunner:
             frame_duration = 1.0 / target_fps
             
             # Optimize frame timing for smoother playback
-            skip_threshold = 0  # Skip frames only when absolutely necessary for smooth playback
-            max_skip_per_loop = 2  # Limit skips to maintain smooth video quality
+            skip_threshold = 1  # Only skip if we're more than 1 frame behind for ultra-smooth playback
+            max_skip_per_loop = 1  # Skip only 1 frame at a time to maintain ultra-smooth video quality
             
             while True:
                 current_time = time.perf_counter()
@@ -518,11 +722,11 @@ class VideoRunner:
                 # Calculate how many frames we're behind
                 frames_behind = expected_frame - frame_count
                 
-                # Only skip frames if we're significantly behind (more conservative)
+                # Only skip frames if we're significantly behind (ultra-conservative for smoothness)
                 if frames_behind > skip_threshold:
-                    # Skip frames by getting multiple frames quickly
+                    # Skip frames by getting multiple frames quickly, but limit to maintain smoothness
                     skipped = 0
-                    while skipped < frames_behind and skipped < max_skip_per_loop:  # Limit skips for smooth video
+                    while skipped < frames_behind and skipped < max_skip_per_loop:  # Ultra-limited skips for smoothest video
                         frame_data = self.video_source.get_frame()
                         if frame_data is None:
                             break
@@ -530,7 +734,7 @@ class VideoRunner:
                         frame_count += 1
                     
                     if skipped > 0:
-                        logger.debug(f"Skipped {skipped} frames for smooth playback")
+                        logger.debug(f"Skipped {skipped} frames for ultra-smooth playback")
                 
                 # Process the current frame
                 if frame_count <= expected_frame:
