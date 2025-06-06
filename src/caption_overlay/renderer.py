@@ -145,7 +145,7 @@ class CaptionRenderer:
         return display_lines
     
     def calculate_text_dimensions(self, display_lines):
-        """Calculate dimensions for text block with proper Unicode support.
+        """Calculate dimensions for text block using OpenCV for consistency.
         
         Args:
             display_lines: List of text lines to measure
@@ -157,35 +157,18 @@ class CaptionRenderer:
         line_widths = []
         
         for line in display_lines:
-            # Check if line contains Unicode characters
-            has_unicode = any(ord(char) > 127 for char in line)
+            # CRITICAL: Use OpenCV for ALL text measurements to ensure consistency
+            # This ensures background sizing matches text positioning exactly
+            (w, h), _ = cv2.getTextSize(
+                line, self.font, self.style.font_scale, self.style.font_thickness
+            )
+            line_heights.append(h)
+            line_widths.append(w)
             
+            # DEBUG: Log dimensions for Russian text specifically
+            has_unicode = any(ord(char) > 127 for char in line)
             if has_unicode:
-                # Use PIL for accurate Unicode text measurement
-                try:
-                    temp_img = Image.new('RGB', (100, 100))
-                    temp_draw = ImageDraw.Draw(temp_img)
-                    font = self._get_unicode_font(int(self.style.font_scale * 24))
-                    bbox = temp_draw.textbbox((0, 0), line, font=font)
-                    w = bbox[2] - bbox[0]
-                    h = bbox[3] - bbox[1]
-                    line_heights.append(h)
-                    line_widths.append(w)
-                except Exception as e:
-                    logger.warning(f"Failed PIL measurement for Unicode text, using OpenCV fallback: {e}")
-                    # Fallback to OpenCV
-                    (w, h), _ = cv2.getTextSize(
-                        line, self.font, self.style.font_scale, self.style.font_thickness
-                    )
-                    line_heights.append(h)
-                    line_widths.append(w)
-            else:
-                # Use OpenCV for ASCII text
-                (w, h), _ = cv2.getTextSize(
-                    line, self.font, self.style.font_scale, self.style.font_thickness
-                )
-                line_heights.append(h)
-                line_widths.append(w)
+                logger.debug(f"Russian text '{line[:20]}...' OpenCV dimensions: {w}x{h}")
         
         total_text_height = sum(line_heights) + (len(display_lines) - 1) * (self.style.font_thickness + 2)
         max_text_width = max(line_widths) if line_widths else 0
@@ -604,12 +587,7 @@ class CaptionRenderer:
             draw = ImageDraw.Draw(pil_image)
             
             # Calculate font size to match OpenCV rendering exactly
-            # OpenCV uses font_scale directly, PIL needs pixel size
-            # Use same calculation as in render_text_line for consistency
-            opencv_equivalent_size = max(16, int(self.style.font_scale * 30))  # Increased base size for better matching
-            
-            # DEBUG: Log font size calculation
-            logger.debug(f"Font size calculation: font_scale={self.style.font_scale}, opencv_size={opencv_equivalent_size}")
+            opencv_equivalent_size = max(16, int(self.style.font_scale * 30))
             
             # Get Unicode font (cache for better performance)
             if not hasattr(self, '_cached_fonts'):
@@ -620,43 +598,39 @@ class CaptionRenderer:
                 self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # CRITICAL FIX: Ensure Russian text position matches OpenCV baseline exactly
-            # OpenCV y is baseline, PIL y is top-left. Need to convert properly.
-            # Get text metrics for accurate positioning
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
+            # CRITICAL FIX: Use the SAME positioning logic as OpenCV for consistency
+            # Instead of complex baseline conversion, position text to match OpenCV exactly
+            # The y position from OpenCV is the baseline, but we need to adjust for PIL's top-left origin
             
-            # OpenCV baseline is approximately 80% from the top of the text height
-            # But we need to account for descenders and ensure text fits in background
-            descent = font.getmetrics()[1] if hasattr(font, 'getmetrics') else text_height * 0.2
+            # Get text metrics using OpenCV for consistency with background calculation
+            (opencv_width, opencv_height), opencv_baseline = cv2.getTextSize(
+                text, self.font, self.style.font_scale, self.style.font_thickness
+            )
             
-            # Calculate PIL top position from OpenCV baseline position
-            # y (OpenCV baseline) - text_height + descent = PIL top position
-            adjusted_y = y - text_height + descent
+            # Use OpenCV's height calculation but adjust for PIL rendering
+            # The key insight: use OpenCV's text height to position PIL text consistently
+            pil_y = y - opencv_height  # Position text so baseline matches OpenCV
             
-            # ENSURE text stays within reasonable bounds (don't go off screen)
-            adjusted_y = max(5, adjusted_y)  # At least 5 pixels from top
+            # DEBUG: Log positioning details
+            logger.debug(f"Russian positioning: OpenCV_height={opencv_height}, baseline_y={y}, PIL_top_y={pil_y}")
             
-            # DEBUG: Log detailed positioning calculation
-            logger.debug(f"Russian positioning: opencv_baseline={y}, text_h={text_height}, descent={descent:.1f}")
-            logger.debug(f"Russian positioning: calculated_top={y - text_height + descent:.1f}, final_y={adjusted_y}")
-            
-            # Ensure text doesn't interfere with background calculation
-            if adjusted_y < 0:
-                adjusted_y = 5  # Force minimum distance from top
-                logger.warning(f"Russian text positioned too high, moved to y={adjusted_y}")
+            # Ensure text doesn't go off screen
+            pil_y = max(10, pil_y)  # At least 10 pixels from top
             
             # Draw text shadow first (for better readability)
-            shadow_offset = 2  # Same as OpenCV version
+            shadow_offset = 2
             shadow_color = (0, 0, 0)  # Black shadow
-            draw.text((x + shadow_offset, adjusted_y + shadow_offset), text, font=font, fill=shadow_color)
+            draw.text((x + shadow_offset, pil_y + shadow_offset), text, font=font, fill=shadow_color)
             
-            # Draw main text at calculated position
-            draw.text((x, adjusted_y), text, font=font, fill=color)
+            # Draw main text using the calculated position
+            draw.text((x, pil_y), text, font=font, fill=color)
             
             # Convert back to OpenCV format (RGB to BGR)
             result_frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+            
+            # DEBUG: Log successful rendering
+            logger.debug(f"Russian text rendered successfully at PIL position ({x}, {pil_y})")
+            
             return result_frame
             
         except Exception as e:
