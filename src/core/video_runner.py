@@ -52,10 +52,26 @@ class VideoRunner:
         
         # Create list of all target languages for translation
         self.target_languages = []
-        if primary_language != "en":  # Add primary language if not English
+        
+        # Add primary language if not English (and not already in the list)
+        if primary_language != "en":
             self.target_languages.append(primary_language)
-        if self.secondary_languages:  # Add secondary languages
-            self.target_languages.extend(self.secondary_languages)
+        
+        # Add secondary languages (only if not already in the list)
+        if self.secondary_languages:
+            for sec_lang in self.secondary_languages:
+                if sec_lang not in self.target_languages and sec_lang != "en":
+                    self.target_languages.append(sec_lang)
+        
+        # CRITICAL DEBUG: Log exactly what target languages we have
+        logger.info(f"🚨 TARGET LANGUAGES SETUP: primary='{primary_language}', secondary={self.secondary_languages}")
+        logger.info(f"🚨 FINAL TARGET LANGUAGES: {self.target_languages} (should have EXACTLY {len(set(self.target_languages))} unique languages)")
+        
+        # Additional safety check for duplicates
+        if len(self.target_languages) != len(set(self.target_languages)):
+            logger.error(f"🚨 DUPLICATE LANGUAGES DETECTED in target_languages: {self.target_languages}")
+            self.target_languages = list(set(self.target_languages))  # Remove duplicates
+            logger.info(f"🚨 DEDUPLICATED TARGET LANGUAGES: {self.target_languages}")
         
         # Initialize comparison mode components if needed
         if self.comparison_mode:
@@ -361,6 +377,7 @@ class VideoRunner:
                     
                 # Add ALL target language captions SIMULTANEOUSLY using buffered translations
                 if target_languages and hasattr(self, '_translator'):
+                    logger.debug(f"🚨 ADDING TRANSLATIONS for {len(target_languages)} languages: {target_languages}")
                     for lang_code in target_languages:
                         try:
                             # Use buffered translation for instant concurrent display
@@ -369,6 +386,8 @@ class VideoRunner:
                             if translated_text and translated_text.strip() and translated_text != processed_text:
                                 # Clean the translated text for proper display
                                 cleaned_translated_text = self._clean_text_for_display(translated_text)
+                                
+                                logger.debug(f"🚨 ADDING CAPTION: lang='{lang_code}', text='{cleaned_translated_text[:30]}...', timing={rel_start_adjusted:.2f}-{rel_start_adjusted + duration:.2f}")
                                 
                                 # Add translated caption with EXACT SAME timing as primary for concurrent display
                                 secondary_caption = self.caption_overlay.add_caption(
@@ -382,6 +401,8 @@ class VideoRunner:
                                     
                                 if self.frame_count % 30 == 0:
                                     logger.info(f"[CAPTION] Added {lang_code} CONCURRENT: {cleaned_translated_text!r}")
+                            else:
+                                logger.debug(f"🚨 SKIPPING CAPTION for '{lang_code}': translation failed or identical")
                         except Exception as e:
                             logger.warning(f"Failed to add concurrent caption for {lang_code}: {e}")
                 

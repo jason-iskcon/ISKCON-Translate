@@ -34,7 +34,7 @@ class CaptionRenderer:
         self.language_colors = {
             'en': (255, 255, 255),     # White for English (primary)
             'fr': (150, 255, 255),     # Pale blue for French - MUST BE PALE BLUE ONLY
-            'ru': (255, 180, 180),     # Pale red for Russian
+            'ru': (255, 192, 203),     # Pale pink for Russian (was too red/purple before)
         }
         
         # SAFEGUARD: Absolutely NO yellow colors allowed anywhere
@@ -459,11 +459,24 @@ class CaptionRenderer:
         render_start = time.time()
         result_frame = frame.copy()
         
+        # CRITICAL DEBUG: Log exactly what captions we're trying to render
+        if len(active_captions) > 3:
+            logger.error(f"🚨 PROBLEM: {len(active_captions)} captions detected! Expected only 3 (en, fr, ru)")
+            for i, cap in enumerate(active_captions):
+                lang = cap.get('language', 'UNKNOWN')
+                text = cap.get('text', '')[:30]
+                logger.error(f"   Caption {i+1}: lang='{lang}', text='{text}...'")
+        
         # Reduce debug logging frequency to improve performance
         should_log = len(active_captions) > 0 and (int(current_time * 10) % 10 == 0)  # Log once per second
         
         if should_log:
             logger.debug(f"[RENDER] Rendering {len(active_captions)} captions at time {current_time:.3f}s")
+            # Debug each caption
+            for i, cap in enumerate(active_captions):
+                lang = cap.get('language', 'UNKNOWN')
+                text = cap.get('text', '')[:20]
+                logger.debug(f"   Caption {i}: lang='{lang}', text='{text}...'")
         
         # Sort captions by start time (oldest first) to maintain proper stacking order
         active_captions = sorted(active_captions, key=lambda x: x['start_time'])
@@ -471,6 +484,16 @@ class CaptionRenderer:
         # Separate primary and secondary language captions for proper layering
         primary_captions = [c for c in active_captions if c.get('is_primary', True)]
         secondary_captions = [c for c in active_captions if not c.get('is_primary', True)]
+        
+        # ADDITIONAL DEBUG: Check for duplicates
+        lang_counts = {}
+        for cap in active_captions:
+            lang = cap.get('language', 'UNKNOWN')
+            lang_counts[lang] = lang_counts.get(lang, 0) + 1
+        
+        for lang, count in lang_counts.items():
+            if count > 1:
+                logger.error(f"🚨 DUPLICATE LANGUAGE DETECTED: '{lang}' appears {count} times!")
         
         # Process each active caption
         rendered_count = 0
@@ -559,7 +582,7 @@ class CaptionRenderer:
             x, y = position
             
             # DEBUG: Log what we're trying to render
-            logger.debug(f"Unicode rendering: lang='{language}', color={color}, text='{text[:20]}...'")
+            logger.debug(f"Unicode rendering: lang='{language}', color={color}, text='{text[:20]}...', pos=({x},{y})")
             
             # Convert OpenCV frame (BGR) to PIL Image (RGB)
             pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -577,21 +600,17 @@ class CaptionRenderer:
                 self._cached_fonts[font_key] = self._get_unicode_font(opencv_equivalent_size)
             font = self._cached_fonts[font_key]
             
-            # Use PIL's textbbox to get EXACT text dimensions
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            
-            # Adjust position to match OpenCV baseline positioning
-            # PIL uses top-left, OpenCV uses baseline, so adjust Y upward by text height
-            adjusted_y = y - text_height + (text_height // 4)  # Rough baseline adjustment
+            # CRITICAL FIX: Use the EXACT same Y position as OpenCV to stay within background
+            # No Y adjustment - this ensures the text stays within the calculated background bounds
+            adjusted_y = y
+            logger.debug(f"Russian text position: original_y={y}, adjusted_y={adjusted_y}")
             
             # Draw text shadow (for better readability) - match OpenCV shadow offset
             shadow_offset = 2  # Same as OpenCV version
             shadow_color = (0, 0, 0)  # Black shadow
             draw.text((x + shadow_offset, adjusted_y + shadow_offset), text, font=font, fill=shadow_color)
             
-            # Draw main text at adjusted position to match OpenCV baseline
+            # Draw main text at same position as OpenCV calculation
             draw.text((x, adjusted_y), text, font=font, fill=color)
             
             # Convert back to OpenCV format (RGB to BGR)
