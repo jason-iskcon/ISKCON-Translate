@@ -152,8 +152,8 @@ class CaptionRenderer:
         
         # Use PIL for ALL text measurements for consistency
         try:
-            # CRITICAL FIX: Use the SAME font size calculation as rendering
-            pil_font_size = max(16, int(self.style.font_scale * 30))  # Match _render_unicode_text
+            # CRITICAL FIX: Use the SAME font size calculation as rendering with video scaling
+            pil_font_size = self.style.get_scaled_font_size()  # Use video-aware scaling
             pil_font = self._get_unicode_font(pil_font_size)
             
             for line in display_lines:
@@ -185,8 +185,8 @@ class CaptionRenderer:
             
         except Exception as e:
             logger.error(f"Error calculating PIL text dimensions: {e}")
-            # Fallback to approximate dimensions
-            fallback_height = int(self.style.font_scale * 24)
+            # Fallback to approximate dimensions with video scaling
+            fallback_height = self.style.get_scaled_font_size(24)
             line_heights = [fallback_height] * len(display_lines)
             line_widths = [len(line) * int(fallback_height * 0.6) for line in display_lines]
             total_text_height = sum(line_heights) + (len(display_lines) - 1) * 5
@@ -211,8 +211,8 @@ class CaptionRenderer:
         # Base position - very close to bottom with minimal margin
         base_margin = 20  # Reduced from 30 to 20
         
-        # Calculate background dimensions with padding
-        padding = self.style.padding  # Use existing padding attribute
+        # Calculate background dimensions with scaled padding
+        padding = self.style.get_scaled_padding()  # Use video-aware padding
         
         bg_width = max_text_width + (2 * padding)
         bg_height = total_text_height + (2 * padding)
@@ -315,43 +315,32 @@ class CaptionRenderer:
         Args:
             frame: Video frame to render on
             line: Text line to render
-            x: X position for text (left edge)
-            y: Y position for text (top edge, NOT baseline)
-            fade_factor: Fade factor for text opacity
+            x: X coordinate for text position
+            y: Y coordinate for text position (top-left in PIL)
+            fade_factor: Fade factor for transparency (0.0 to 1.0)
             language: Language code for color selection
             
         Returns:
             numpy.ndarray: Frame with text rendered
         """
-        if not line.strip():
+        if not line or not line.strip():
+            logger.debug(f"[RENDER_TEXT_LINE] Skipping empty line")
             return frame
         
-        # Get language-specific color
-        text_color = self.get_language_color(language)
-        
-        # CRITICAL DEBUG: Log all color assignments to catch issues
-        expected_colors = {
-            'en': (255, 255, 255),
-            'fr': (255, 200, 150), 
-            'de': (0, 255, 255),
-            'it': (0, 165, 255),
-            'hu': (0, 255, 0),
-            'ru': (203, 192, 255),
-            'uk': (255, 0, 255)
-        }
-        
-        if language in expected_colors and text_color != expected_colors[language]:
-            logger.error(f"🚨 {language.upper()} COLOR WRONG! Expected {expected_colors[language]} but got {text_color}")
-        
-        # DETECT YELLOW COLORS - log any unexpected yellow-like colors (but allow German's yellow)
-        r, g, b = text_color
-        if g > 200 and b < 200 and language != 'de':  # Yellow-like colors, but allow German
-            logger.error(f"🚨 UNEXPECTED YELLOW COLOR DETECTED for language '{language}': {text_color}")
-        
-        # DEBUG: Log color and language for debugging
-        logger.debug(f"RENDER_TEXT_LINE: lang='{language}' color={text_color} text='{line[:15]}...'")
-        if language not in expected_colors:
-            logger.warning(f"DEBUG: Unexpected language '{language}' with color {text_color} for text: '{line[:30]}...'")
+        try:
+            # Get language-specific color
+            text_color = self.language_colors.get(language, self.language_colors['en'])  # Fallback to English color
+            
+            # Color debugging and validation for specific issues
+            if language == 'fr' and text_color == (255, 255, 150):
+                logger.error(f"FORBIDDEN YELLOW COLOR DETECTED for language '{language}': {text_color}. Forcing to white!")
+                text_color = (255, 255, 255)  # Force to white
+                logger.error(f"🚨 YELLOW COLOR DETECTED for language '{language}': {text_color}")
+            
+            logger.debug(f"[RENDER_TEXT_LINE] Rendering '{line[:30]}...' at ({x}, {y}) in {language} with color {text_color}")
+        except Exception as e:
+            logger.error(f"Error in render_text_line color processing: {e}")
+            text_color = (255, 255, 255)  # Safe fallback to white
         
         # USE PIL FOR ALL TEXT RENDERING
         # Convert BGR to RGB for PIL (our colors are stored in BGR format)
@@ -363,8 +352,8 @@ class CaptionRenderer:
         # DEBUG: Log color conversion for debugging
         logger.debug(f"Color conversion for {language}: BGR{text_color} -> RGB{rgb_color} -> faded{faded_color}")
         
-        # Use the same font scale as before for consistency
-        pil_font_size = int(self.style.font_scale * 24)
+        # Use video dimension-aware font size for consistency
+        pil_font_size = self.style.get_scaled_font_size()
         
         # Render using PIL at the given position (y is already top-left, not baseline)
         result_frame = self._render_unicode_text(frame, line, (x, y), faded_color, pil_font_size, language)
@@ -582,7 +571,7 @@ class CaptionRenderer:
             text: Text to render (can contain Unicode characters)
             position: (x, y) position tuple - MUST match OpenCV text baseline
             color: RGB color tuple
-            font_size: Font size
+            font_size: Font size (deprecated - now uses style config)
             language: Language code for font selection
             
         Returns:
@@ -598,8 +587,8 @@ class CaptionRenderer:
             pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(pil_image)
             
-            # Calculate font size to match OpenCV rendering exactly
-            opencv_equivalent_size = max(16, int(self.style.font_scale * 30))
+            # Use video dimension-aware font size instead of hardcoded size
+            opencv_equivalent_size = self.style.get_scaled_font_size()
             
             # Get Unicode font (cache for better performance)
             if not hasattr(self, '_cached_fonts'):

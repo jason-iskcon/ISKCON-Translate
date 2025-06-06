@@ -89,6 +89,22 @@ class CaptionOverlay:
         
         logger.debug("CaptionOverlay initialized")
     
+    def set_video_dimensions(self, width: int, height: int):
+        """Set video dimensions for responsive caption sizing.
+        
+        Args:
+            width: Video width in pixels
+            height: Video height in pixels
+        """
+        logger.info(f"Setting video dimensions for responsive caption sizing: {width}x{height}")
+        self.style_config.set_video_dimensions(width, height)
+        
+        # Log the scaling factors that will be applied
+        font_scale_factor = self.style_config.get_scaled_font_size() / 30.0  # Compare to base 30px
+        padding_scale_factor = self.style_config.get_scaled_padding() / self.style_config.padding
+        
+        logger.info(f"Caption scaling applied - Font: {font_scale_factor:.2f}x, Padding: {padding_scale_factor:.2f}x")
+    
     def add_caption(self, text, timestamp, duration=2.5, is_absolute=False, seamless=True, language='en', is_primary=True):
         """Add a caption to be displayed.
         

@@ -182,6 +182,10 @@ class VideoRunner:
         # Get video information and log initialization
         width, height, fps = video_source.get_video_info()
         
+        # Set video dimensions in caption overlay for responsive font scaling
+        caption_overlay.set_video_dimensions(width, height)
+        logger.info(f"Set caption overlay video dimensions: {width}x{height}")
+        
         # Create display window with proper sizing if not in headless mode
         if not self.headless:
             # Calculate display size to fit screen (max 1280x720 for reasonable viewing)
